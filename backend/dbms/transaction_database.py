@@ -3,6 +3,7 @@ from typing import Optional, List, Union
 
 from database import get_db_connection
 from .transaction import Transaction, TransactionState
+from .wal_logger import commit_wal_records, rollback_wal_records
 
 
 def begin_transaction(
@@ -100,6 +101,7 @@ def commit_transaction(
     """
     COMMIT transaction when operations succeed.
     Updates transaction_state to COMMITTED and sets commit_time in the database.
+    Also updates associated PENDING WAL log records to COMMITTED.
     Accepts either an integer transaction_id or a Transaction object.
     """
     transaction_id = (
@@ -139,6 +141,9 @@ def commit_transaction(
         )
 
         connection.commit()
+
+        # Update associated WAL log records from PENDING to COMMITTED
+        commit_wal_records(transaction_id)
         return cursor.rowcount > 0
 
     finally:
@@ -153,6 +158,7 @@ def rollback_transaction(
     """
     ROLLBACK transaction if something goes wrong.
     Updates transaction_state to ROLLEDBACK and sets rollback_time in the database.
+    Also updates associated PENDING WAL log records to ROLLEDBACK.
     Accepts either an integer transaction_id or a Transaction object.
     """
     transaction_id = (
@@ -192,6 +198,9 @@ def rollback_transaction(
         )
 
         connection.commit()
+
+        # Update associated WAL log records from PENDING to ROLLEDBACK
+        rollback_wal_records(transaction_id)
         return cursor.rowcount > 0
 
     finally:
