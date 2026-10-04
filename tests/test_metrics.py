@@ -15,7 +15,9 @@ import pytest
 from datetime import datetime
 from fastapi.testclient import TestClient
 
+# pyrefly: ignore [missing-import]
 from os_engine.process import Process
+# pyrefly: ignore [missing-import]
 from os_engine.metrics import calculate_cpu_utilization, save_system_metrics
 from database import get_db_connection
 from main import app

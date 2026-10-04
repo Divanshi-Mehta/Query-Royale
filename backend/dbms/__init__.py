@@ -8,6 +8,16 @@ from .transaction_database import (
     get_transaction,
     get_transactions_by_process
 )
+from .lock_manager import (
+    LockType,
+    LockState,
+    can_acquire,
+    acquire_lock,
+    release_lock,
+    release_locks_by_transaction,
+    get_active_locks,
+    get_waiting_locks
+)
 
 __all__ = [
     "Transaction",
@@ -18,5 +28,13 @@ __all__ = [
     "commit_transaction",
     "rollback_transaction",
     "get_transaction",
-    "get_transactions_by_process"
+    "get_transactions_by_process",
+    "LockType",
+    "LockState",
+    "can_acquire",
+    "acquire_lock",
+    "release_lock",
+    "release_locks_by_transaction",
+    "get_active_locks",
+    "get_waiting_locks"
 ]
