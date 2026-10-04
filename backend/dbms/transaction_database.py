@@ -5,14 +5,15 @@ from database import get_db_connection
 from .transaction import Transaction, TransactionState
 
 
-def create_transaction(
+def begin_transaction(
     process_id: int,
     state: str = TransactionState.ACTIVE,
     start_time: Optional[datetime] = None
-) -> int:
+) -> Transaction:
     """
-    Insert a new transaction into the transactions database table.
-    Returns the generated transaction_id.
+    BEGIN transaction when a process starts database operations.
+    Creates a new row in the transactions database table with state ACTIVE
+    and returns the created Transaction object.
     """
     connection = get_db_connection()
     cursor = connection.cursor()
@@ -41,11 +42,29 @@ def create_transaction(
 
         transaction_id = cursor.lastrowid
         connection.commit()
-        return transaction_id
+
+        return Transaction(
+            process_id=process_id,
+            transaction_id=transaction_id,
+            state=state,
+            start_time=start_datetime
+        )
 
     finally:
         cursor.close()
         connection.close()
+
+
+def create_transaction(
+    process_id: int,
+    state: str = TransactionState.ACTIVE,
+    start_time: Optional[datetime] = None
+) -> int:
+    """
+    Helper function that begins a transaction and returns the integer transaction_id.
+    """
+    tx = begin_transaction(process_id=process_id, state=state, start_time=start_time)
+    return tx.transaction_id
 
 
 def update_transaction_state(
@@ -53,7 +72,7 @@ def update_transaction_state(
     state: str
 ) -> bool:
     """
-    Update the transaction_state of an existing transaction.
+    Update the transaction_state of an existing transaction in the database.
     """
     connection = get_db_connection()
     cursor = connection.cursor()
@@ -75,16 +94,31 @@ def update_transaction_state(
 
 
 def commit_transaction(
-    transaction_id: int,
+    transaction: Union[int, Transaction],
     commit_time: Optional[datetime] = None
 ) -> bool:
     """
-    Mark a transaction as COMMITTED and record the commit timestamp.
+    COMMIT transaction when operations succeed.
+    Updates transaction_state to COMMITTED and sets commit_time in the database.
+    Accepts either an integer transaction_id or a Transaction object.
     """
+    transaction_id = (
+        transaction.transaction_id
+        if isinstance(transaction, Transaction)
+        else transaction
+    )
+
+    if isinstance(transaction, Transaction):
+        transaction.commit(commit_time)
+
+    commit_datetime = (
+        commit_time
+        or (transaction.commit_time if isinstance(transaction, Transaction) else None)
+        or datetime.now()
+    )
+
     connection = get_db_connection()
     cursor = connection.cursor()
-
-    commit_datetime = commit_time or datetime.now()
 
     try:
         query = """
@@ -113,16 +147,31 @@ def commit_transaction(
 
 
 def rollback_transaction(
-    transaction_id: int,
+    transaction: Union[int, Transaction],
     rollback_time: Optional[datetime] = None
 ) -> bool:
     """
-    Mark a transaction as ROLLEDBACK and record the rollback timestamp.
+    ROLLBACK transaction if something goes wrong.
+    Updates transaction_state to ROLLEDBACK and sets rollback_time in the database.
+    Accepts either an integer transaction_id or a Transaction object.
     """
+    transaction_id = (
+        transaction.transaction_id
+        if isinstance(transaction, Transaction)
+        else transaction
+    )
+
+    if isinstance(transaction, Transaction):
+        transaction.rollback(rollback_time)
+
+    rollback_datetime = (
+        rollback_time
+        or (transaction.rollback_time if isinstance(transaction, Transaction) else None)
+        or datetime.now()
+    )
+
     connection = get_db_connection()
     cursor = connection.cursor()
-
-    rollback_datetime = rollback_time or datetime.now()
 
     try:
         query = """

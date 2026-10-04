@@ -1,5 +1,6 @@
 from .transaction import Transaction, TransactionState
 from .transaction_database import (
+    begin_transaction,
     create_transaction,
     update_transaction_state,
     commit_transaction,
@@ -11,6 +12,7 @@ from .transaction_database import (
 __all__ = [
     "Transaction",
     "TransactionState",
+    "begin_transaction",
     "create_transaction",
     "update_transaction_state",
     "commit_transaction",
