@@ -179,34 +179,46 @@ def detect_deadlocks() -> List[Dict[str, Any]]:
     connection = get_db_connection()
     cursor = connection.cursor()
 
-    try:
+    try:      
+        
+        
         for cycle in cycles:
-            # Mark all transactions in the cycle as DEADLOCK state
+            cursor.execute(
+                """
+                SELECT transaction_1_id, transaction_2_id
+                FROM deadlocks
+                WHERE resolution_status = %s
+                """,
+                ("DETECTED",)
+            )
+
+            existing_pairs = {
+                frozenset(row)
+                for row in cursor.fetchall()
+            }
+
+            cycle_pairs = {
+                frozenset((cycle[i], cycle[(i + 1) % len(cycle)]))
+                for i in range(len(cycle))
+            }
+
+            missing_pairs = cycle_pairs - existing_pairs
+
+            if not missing_pairs:
+                continue
+
+
             for tx_id in cycle:
                 update_transaction_state(tx_id, TransactionState.DEADLOCK)
 
-            # Insert pair records into deadlocks table for adjacent transactions in cycle
-            for i in range(len(cycle)):
-                tx1_id = cycle[i]
-                tx2_id = cycle[(i + 1) % len(cycle)]
-
-                query = """
-                INSERT INTO deadlocks
-                (
-                    transaction_1_id,
-                    transaction_2_id,
-                    resolution_status
-                )
-                VALUES (%s, %s, %s)
-                """
-
+            for tx1_id, tx2_id in missing_pairs:
                 cursor.execute(
-                    query,
-                    (
-                        tx1_id,
-                        tx2_id,
-                        "DETECTED"
-                    )
+                    """
+                    INSERT INTO deadlocks
+                        (transaction_1_id, transaction_2_id, resolution_status)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (tx1_id, tx2_id, "DETECTED")
                 )
 
                 deadlock_id = cursor.lastrowid
@@ -220,6 +232,7 @@ def detect_deadlocks() -> List[Dict[str, Any]]:
                     "resolution_status": "DETECTED",
                     "detected_at": datetime.now()
                 })
+
 
         return detected_deadlocks
 

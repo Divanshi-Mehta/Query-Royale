@@ -9,23 +9,53 @@ from .wal_logger import WALStatus, rollback_wal_records, get_all_wal_logs, get_w
 
 def redo_transaction(transaction_id: int) -> List[Dict[str, Any]]:
     """
-    REDO all operations for a committed transaction using new_value from WAL logs.
-    Guarantees Durability (ACID).
+    REDO all operations for a committed transaction using
+    new_value from WAL logs.
     """
+
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
 
     redone_records = []
+
     try:
         query = """
-        SELECT * FROM wal_logs
-        WHERE transaction_id = %s AND log_status = %s
+        SELECT *
+        FROM wal_logs
+        WHERE transaction_id = %s
+          AND log_status = %s
         ORDER BY log_id ASC
         """
-        cursor.execute(query, (transaction_id, WALStatus.COMMITTED))
+
+        cursor.execute(
+            query,
+            (transaction_id, WALStatus.COMMITTED)
+        )
+
         logs = cursor.fetchall()
 
         for log in logs:
+
+            # Currently recovery supports UPDATE
+            # operations on recovery_demo.
+            if (
+                log["table_name"] == "recovery_demo"
+                and log["operation_type"] == "UPDATE"
+            ):
+                update_query = """
+                UPDATE recovery_demo
+                SET value = %s
+                WHERE record_id = %s
+                """
+
+                cursor.execute(
+                    update_query,
+                    (
+                        int(log["new_value"]),
+                        int(log["record_identifier"])
+                    )
+                )
+
             redone_records.append({
                 "log_id": log["log_id"],
                 "transaction_id": transaction_id,
@@ -36,6 +66,8 @@ def redo_transaction(transaction_id: int) -> List[Dict[str, Any]]:
                 "action": "REDO"
             })
 
+        connection.commit()
+
         return redone_records
 
     finally:
@@ -45,25 +77,53 @@ def redo_transaction(transaction_id: int) -> List[Dict[str, Any]]:
 
 def undo_transaction(transaction_id: int) -> List[Dict[str, Any]]:
     """
-    UNDO all operations for an uncommitted/active transaction using old_value from WAL logs.
-    Reverts data modifications and updates transaction & WAL status to ROLLEDBACK.
-    Guarantees Atomicity (ACID).
+    UNDO all operations for an uncommitted transaction
+    using old_value from WAL logs.
     """
+
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
 
     undone_records = []
+
     try:
-        # Scan in reverse chronological order for UNDO
         query = """
-        SELECT * FROM wal_logs
-        WHERE transaction_id = %s AND log_status = %s
+        SELECT *
+        FROM wal_logs
+        WHERE transaction_id = %s
+          AND log_status = %s
         ORDER BY log_id DESC
         """
-        cursor.execute(query, (transaction_id, WALStatus.PENDING))
+
+        cursor.execute(
+            query,
+            (transaction_id, WALStatus.PENDING)
+        )
+
         logs = cursor.fetchall()
 
         for log in logs:
+
+            # Currently recovery supports UPDATE
+            # operations on recovery_demo.
+            if (
+                log["table_name"] == "recovery_demo"
+                and log["operation_type"] == "UPDATE"
+            ):
+                update_query = """
+                UPDATE recovery_demo
+                SET value = %s
+                WHERE record_id = %s
+                """
+
+                cursor.execute(
+                    update_query,
+                    (
+                        int(log["old_value"]),
+                        int(log["record_identifier"])
+                    )
+                )
+
             undone_records.append({
                 "log_id": log["log_id"],
                 "transaction_id": transaction_id,
@@ -74,16 +134,20 @@ def undo_transaction(transaction_id: int) -> List[Dict[str, Any]]:
                 "action": "UNDO"
             })
 
-        # Rollback transaction state and associated WAL logs to ROLLEDBACK
+        connection.commit()
+
+        # Now mark transaction as rolled back.
         rollback_transaction(transaction_id)
+
         return undone_records
 
     finally:
         cursor.close()
         connection.close()
 
-
-def perform_recovery() -> Dict[str, Any]:
+def perform_recovery(
+    transaction_ids: Optional[Set[int]] = None
+) -> Dict[str, Any]:
     """
     Perform ARIES-style crash recovery:
     1. Scan active transactions and WAL logs.
@@ -102,16 +166,32 @@ def perform_recovery() -> Dict[str, Any]:
             "SELECT transaction_id FROM transactions WHERE transaction_state = %s",
             (TransactionState.COMMITTED,)
         )
+
         for row in cursor.fetchall():
-            redo_tx_ids.add(row["transaction_id"])
+            transaction_id = row["transaction_id"]
+
+            if transaction_ids is None or transaction_id in transaction_ids:
+                redo_tx_ids.add(transaction_id)
 
         # Find all UNCOMMITTED (ACTIVE, WAITING, DEADLOCK) transactions
         cursor.execute(
-            "SELECT transaction_id FROM transactions WHERE transaction_state IN (%s, %s, %s)",
-            (TransactionState.ACTIVE, TransactionState.WAITING, TransactionState.DEADLOCK)
+            """
+            SELECT transaction_id
+            FROM transactions
+            WHERE transaction_state IN (%s, %s, %s)
+            """,
+            (
+                TransactionState.ACTIVE,
+                TransactionState.WAITING,
+                TransactionState.DEADLOCK
+            )
         )
+
         for row in cursor.fetchall():
-            undo_tx_ids.add(row["transaction_id"])
+            transaction_id = row["transaction_id"]
+
+            if transaction_ids is None or transaction_id in transaction_ids:
+                undo_tx_ids.add(transaction_id)
 
         # Execute REDO phase
         all_redo_records = []

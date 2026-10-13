@@ -37,7 +37,11 @@ def save_system_metrics(
 
     cpu_utilization = calculate_cpu_utilization(processes)
 
-    active_processes = len(processes)
+    active_processes = sum(
+        1
+        for process in processes
+        if process.state in ["RUNNING", "READY"]
+    )
 
     waiting_processes = sum(
         1
