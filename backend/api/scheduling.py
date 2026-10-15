@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import List, Optional
-from os_engine.metrics import save_system_metrics
-
+from backend.os_engine.metrics import save_system_metrics
+from backend.ai_engine.recommendation import recommend_algorithm
+from backend.ai_engine.comparison import compare_algorithms
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
-from os_engine.process import Process
-from os_engine.scheduler import get_scheduler
-from os_engine.os_database import (
+from backend.os_engine.process import Process
+from backend.os_engine.scheduler import get_scheduler
+from backend.os_engine.os_database import (
     create_query,
     create_process,
     update_process_result,
@@ -22,10 +23,10 @@ router = APIRouter(
 
 
 class ProcessInput(BaseModel):
-    process_id: int
-    arrival_time: int
-    burst_time: int
-    priority: int = 0
+    process_id: int = Field(ge=0)
+    arrival_time: int = Field(ge=0)
+    burst_time: int = Field(gt=0)
+    priority: int = Field(default=0, ge=0)
 
 
 class SchedulingRequest(BaseModel):
@@ -33,7 +34,81 @@ class SchedulingRequest(BaseModel):
     algorithm: str
     processes: List[ProcessInput]
     priority: int = 0
-    time_quantum: Optional[int] = None
+    time_quantum: Optional[int] = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_unique_process_ids(self):
+        process_ids = [process.process_id for process in self.processes]
+
+        if len(process_ids) != len(set(process_ids)):
+            raise ValueError("Process IDs must be unique.")
+
+        return self
+    
+@router.post("/recommend")
+def recommend_scheduling_algorithm(request: SchedulingRequest):
+    try:
+        process_data = [
+            {
+                "process_id": process.process_id,
+                "arrival_time": process.arrival_time,
+                "burst_time": process.burst_time,
+                "priority": process.priority,
+            }
+            for process in request.processes
+        ]
+
+        recommendation = recommend_algorithm(process_data)
+
+        return {
+            "query_text": request.query_text,
+            "recommendation": recommendation,
+            "note": (
+                "This is a rule-based recommendation. "
+                "It does not automatically run the scheduler."
+            ),
+        }
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
+    
+@router.post("/compare")
+def compare_scheduling_algorithms(request: SchedulingRequest):
+    try:
+        processes = [
+            Process(
+                process_id=p.process_id,
+                arrival_time=p.arrival_time,
+                burst_time=p.burst_time,
+                priority=p.priority,
+            )
+            for p in request.processes
+        ]
+
+        comparison = compare_algorithms(
+            processes,
+            time_quantum=request.time_quantum or 2,
+        )
+
+        return {
+            "query_text": request.query_text,
+            "comparison": comparison,
+            "note": (
+                "Each algorithm was tested on a fresh copy "
+                "of the same workload. Ties use algorithm-list order."
+            ),
+        }
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
 
 
 @router.post("/")

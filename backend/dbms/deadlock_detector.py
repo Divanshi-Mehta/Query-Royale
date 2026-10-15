@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict, List, Any, Set, Tuple, Optional
 
-from database import get_db_connection
+from backend.database import get_db_connection
 from .transaction import TransactionState, Transaction
 from .transaction_database import (
     update_transaction_state,

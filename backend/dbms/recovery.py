@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict, List, Any, Set, Optional
 
-from database import get_db_connection
+from backend.database import get_db_connection
 from .transaction import TransactionState
 from .transaction_database import update_transaction_state, rollback_transaction
 from .wal_logger import WALStatus, rollback_wal_records, get_all_wal_logs, get_wal_logs_by_transaction
@@ -23,7 +23,7 @@ def redo_transaction(transaction_id: int) -> List[Dict[str, Any]]:
         SELECT *
         FROM wal_logs
         WHERE transaction_id = %s
-          AND log_status = %s
+        AND log_status = %s
         ORDER BY log_id ASC
         """
 

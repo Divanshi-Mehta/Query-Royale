@@ -1,4 +1,4 @@
-from database import get_db_connection
+from backend.database import get_db_connection
 
 
 def calculate_cpu_utilization(processes):
@@ -37,11 +37,7 @@ def save_system_metrics(
 
     cpu_utilization = calculate_cpu_utilization(processes)
 
-    active_processes = sum(
-        1
-        for process in processes
-        if process.state in ["RUNNING", "READY"]
-    )
+    active_processes = len(processes)
 
     waiting_processes = sum(
         1

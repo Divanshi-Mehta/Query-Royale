@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List, Union
 
-from database import get_db_connection
+from backend.database import get_db_connection
 from .transaction import Transaction, TransactionState
 from .wal_logger import commit_wal_records, rollback_wal_records
 

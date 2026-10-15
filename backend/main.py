@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from api.scheduling import router as scheduling_router
+from backend.api.scheduling import router as scheduling_router
 
 
 app = FastAPI(

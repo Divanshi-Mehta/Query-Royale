@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from database import get_db_connection
+from backend.database import get_db_connection
 
 
 class WALStatus:

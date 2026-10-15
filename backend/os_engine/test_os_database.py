@@ -1,7 +1,13 @@
+import sys
+import os
+
+# Ensure the project root is on the path when running this file directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 from datetime import datetime
 
-from os_engine.process import Process
-from os_engine.os_database import (
+from backend.os_engine.process import Process
+from backend.os_engine.os_database import (
     create_query,
     create_process,
     update_process_result,
