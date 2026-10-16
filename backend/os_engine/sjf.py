@@ -5,6 +5,9 @@ class SJFScheduler(Scheduler):
 
     def schedule(self, processes):
 
+        if not processes:
+            raise ValueError("At least one process is required.")
+
         # Make a copy so we don't modify the original list
         remaining_processes = processes.copy()
 

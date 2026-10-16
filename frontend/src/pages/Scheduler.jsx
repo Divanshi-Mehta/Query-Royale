@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Cpu,
   Clock,
@@ -9,6 +9,7 @@ import {
   Award,
   Zap
 } from 'lucide-react'
+import { scheduleWorkload, compareWorkload, recommendAlgorithm } from '../api/client'
 
 const ALGORITHMS = [
   { id: 'FCFS', label: 'FCFS', fullName: 'First Come, First Served', desc: 'Non-preemptive queue based strictly on arrival time.' },
@@ -213,20 +214,64 @@ export default function Scheduler() {
     setProcesses(processes.map(p => (p.pid === pid ? { ...p, [field]: parsed } : p)))
   }
 
-  function handleRun() {
-    setRunning(true)
-    setTimeout(() => {
-      let sim
-      if (algorithm === 'FCFS') sim = runFCFS(processes)
-      else if (algorithm === 'SJF' || algorithm === 'SRTF') sim = runSJF(processes)
-      else if (algorithm === 'PRIORITY') sim = runPriority(processes)
-      else if (algorithm === 'RR') sim = runRR(processes, quantum)
-      else sim = runFCFS(processes)
+  const [isLiveBackend, setIsLiveBackend] = useState(false)
+  const [dbMetrics, setDbMetrics] = useState(null)
 
-      setResults(sim.ps)
-      setGantt(sim.gantt)
-      setRunning(false)
-    }, 350)
+  async function handleRun() {
+    setRunning(true)
+    try {
+      const data = await scheduleWorkload({
+        queryText: `OS Engine Run: ${algorithm}`,
+        algorithm: algorithm === 'RR' ? 'ROUND_ROBIN' : algorithm,
+        processes: processes,
+        priority: 1,
+        timeQuantum: quantum,
+      })
+
+      if (data && data.results && data.results.length > 0) {
+        const mapped = data.results.map(r => ({
+          pid: r.process_id,
+          arrival: r.arrival_time,
+          burst: r.burst_time,
+          priority: r.priority,
+          start: r.start_time,
+          finish: r.completion_time,
+          waiting: r.waiting_time,
+          turnaround: r.turnaround_time,
+          response: r.response_time,
+        }))
+
+        // Map gantt chunks
+        const ganttBlocks = mapped.map(p => ({
+          pid: `P${p.pid}`,
+          start: p.start,
+          end: p.finish,
+          burst: p.burst,
+        }))
+
+        setResults(mapped)
+        setGantt(ganttBlocks)
+        setDbMetrics(data.system_metrics)
+        setIsLiveBackend(true)
+        setRunning(false)
+        return
+      }
+    } catch (err) {
+      console.warn("Backend scheduling call fallback to local sim:", err.message)
+    }
+
+    // Local fallback simulation if backend is not reachable
+    let sim
+    if (algorithm === 'FCFS') sim = runFCFS(processes)
+    else if (algorithm === 'SJF' || algorithm === 'SRTF') sim = runSJF(processes)
+    else if (algorithm === 'PRIORITY') sim = runPriority(processes)
+    else if (algorithm === 'RR') sim = runRR(processes, quantum)
+    else sim = runFCFS(processes)
+
+    setResults(sim.ps)
+    setGantt(sim.gantt)
+    setIsLiveBackend(false)
+    setRunning(false)
   }
 
   // Calculate metrics
@@ -312,7 +357,9 @@ export default function Scheduler() {
         <div className="card">
           <div className="card-header">
             <div className="card-title">Algorithm Selector</div>
-            <div className="chip chip-blue">Priority 1</div>
+            <div className={`chip ${isLiveBackend ? 'chip-green' : 'chip-blue'}`}>
+              {isLiveBackend ? '● Live OS Engine & DB' : 'Ready'}
+            </div>
           </div>
           <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div className="form-group">

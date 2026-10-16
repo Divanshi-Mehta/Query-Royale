@@ -6,7 +6,8 @@ from .transaction_database import (
     commit_transaction,
     rollback_transaction,
     get_transaction,
-    get_transactions_by_process
+    get_transactions_by_process,
+    get_all_transactions
 )
 from .lock_manager import (
     LockType,
@@ -47,6 +48,7 @@ __all__ = [
     "rollback_transaction",
     "get_transaction",
     "get_transactions_by_process",
+    "get_all_transactions",
     "LockType",
     "LockState",
     "can_acquire",

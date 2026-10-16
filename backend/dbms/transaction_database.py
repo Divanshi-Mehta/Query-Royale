@@ -287,3 +287,43 @@ def get_transactions_by_process(process_id: int) -> List[Transaction]:
     finally:
         cursor.close()
         connection.close()
+
+
+def get_all_transactions(limit: int = 50) -> List[Transaction]:
+    """
+    Fetch recent transactions from the database up to the specified limit.
+    """
+    connection = get_db_connection()
+    cursor = connection.cursor(dictionary=True)
+
+    try:
+        query = """
+        SELECT
+            transaction_id,
+            process_id,
+            transaction_state,
+            start_time,
+            commit_time,
+            rollback_time
+        FROM transactions
+        ORDER BY transaction_id DESC
+        LIMIT %s
+        """
+        cursor.execute(query, (limit,))
+        rows = cursor.fetchall()
+
+        return [
+            Transaction(
+                process_id=row["process_id"],
+                transaction_id=row["transaction_id"],
+                state=row["transaction_state"],
+                start_time=row["start_time"],
+                commit_time=row["commit_time"],
+                rollback_time=row["rollback_time"]
+            )
+            for row in rows
+        ]
+    finally:
+        cursor.close()
+        connection.close()
+

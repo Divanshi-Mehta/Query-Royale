@@ -5,6 +5,9 @@ class PriorityScheduler(Scheduler):
 
     def schedule(self, processes):
 
+        if not processes:
+            raise ValueError("At least one process is required.")
+
         remaining_processes = processes.copy()
         scheduled_processes = []
 

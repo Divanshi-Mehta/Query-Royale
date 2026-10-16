@@ -5,6 +5,9 @@ class FCFSScheduler(Scheduler):
 
     def schedule(self, processes):
 
+        if not processes:
+            raise ValueError("At least one process is required.")
+
         # FCFS: process with earlier arrival time runs first
         processes = sorted(
             processes,

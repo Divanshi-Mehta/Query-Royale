@@ -13,6 +13,9 @@ class RoundRobinScheduler(Scheduler):
         if self.time_quantum <= 0:
             raise ValueError("Time quantum must be greater than 0.")
 
+        if not processes:
+            raise ValueError("At least one process is required.")
+
         # Reset scheduling-related values
         for process in processes:
             process.remaining_time = process.burst_time
