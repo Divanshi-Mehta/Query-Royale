@@ -427,3 +427,94 @@ def get_sql_history(limit: int = 20):
         return {"history": history}
     except Exception as e:
         return {"history": [], "error": str(e)}
+
+
+@router.post("/deadlocks/inject")
+def inject_deadlock_simulation():
+    """
+    Creates a real deadlock in the database:
+    1. Begins TXN A and TXN B.
+    2. TXN A acquires EXCLUSIVE lock on 'orders'.
+    3. TXN B acquires EXCLUSIVE lock on 'products'.
+    4. TXN A requests EXCLUSIVE lock on 'products' (blocked -> WAITING).
+    5. TXN B requests EXCLUSIVE lock on 'orders' (blocked -> WAITING, cycle created!).
+    6. Runs deadlock detection and returns the detected deadlock incident.
+    """
+    try:
+        tx_a = begin_transaction(process_id=101, state=TransactionState.ACTIVE)
+        tx_b = begin_transaction(process_id=102, state=TransactionState.ACTIVE)
+
+        # Granted locks
+        acquire_lock(transaction_id=tx_a.transaction_id, resource_name="orders", lock_type="EXCLUSIVE")
+        acquire_lock(transaction_id=tx_b.transaction_id, resource_name="products", lock_type="EXCLUSIVE")
+
+        # Waiting locks that close the cycle
+        acquire_lock(transaction_id=tx_a.transaction_id, resource_name="products", lock_type="EXCLUSIVE")
+        acquire_lock(transaction_id=tx_b.transaction_id, resource_name="orders", lock_type="EXCLUSIVE")
+
+        # Detect and record the deadlock in DB
+        detected = detect_deadlocks()
+        all_deadlocks = get_deadlocks()
+
+        return {
+            "message": f"Deadlock cycle successfully injected between TXN-{tx_a.transaction_id} and TXN-{tx_b.transaction_id}!",
+            "transaction_a": tx_a.transaction_id,
+            "transaction_b": tx_b.transaction_id,
+            "detected": detected,
+            "deadlocks": all_deadlocks,
+            "wait_for_graph": build_wait_for_graph()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tables")
+def get_tables_status():
+    """Returns row counts and metadata for all primary database tables."""
+    tables = [
+        "orders", "products", "accounts", "queries", "processes",
+        "transactions", "locks", "deadlocks", "wal_logs", "system_metrics"
+    ]
+    counts = {}
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        for t in tables:
+            try:
+                cursor.execute(f"SELECT COUNT(*) as cnt FROM {t}")
+                row = cursor.fetchone()
+                counts[t] = row["cnt"] if row and "cnt" in row else 0
+            except Exception:
+                counts[t] = 0
+        return {
+            "db_type": get_db_type(),
+            "tables": counts,
+            "timestamp": datetime.now().isoformat()
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@router.post("/reset")
+def reset_database():
+    """Resets sample tables and clears active locks/deadlocks for a clean slate."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Clear locks, deadlocks, and active transactions
+        cursor.execute("DELETE FROM locks")
+        cursor.execute("DELETE FROM deadlocks")
+        cursor.execute("UPDATE transactions SET transaction_state = 'COMMITTED' WHERE transaction_state = 'ACTIVE'")
+        conn.commit()
+        return {
+            "status": "success",
+            "message": "Database locks and deadlocks reset successfully.",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+

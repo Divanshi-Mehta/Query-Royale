@@ -3,6 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, Legend,
 } from 'recharts'
+import { fetchDashboardMetrics, fetchMetricsHistory } from '../api/client'
 
 function generatePoint(prev) {
   return {
@@ -34,16 +35,46 @@ const CustomTooltip = ({ active, payload, label }) => {
 export default function Metrics() {
   const [history, setHistory] = useState(INITIAL_HISTORY)
   const [live, setLive] = useState(history[history.length - 1])
+  const [isLiveBackend, setIsLiveBackend] = useState(false)
+
+  async function loadBackendMetrics() {
+    try {
+      const [dash, hist] = await Promise.all([
+        fetchDashboardMetrics().catch(() => null),
+        fetchMetricsHistory(15).catch(() => null),
+      ])
+
+      if (dash) {
+        setIsLiveBackend(true)
+        setLive({
+          cpu: Math.round(dash.cpu_utilization ?? 32),
+          processes: dash.active_processes ?? 4,
+          txns: dash.active_transactions ?? 2,
+          locks: dash.active_locks ?? 2,
+          deadlocks: dash.deadlock_count ?? 0,
+        })
+      }
+
+      if (hist && hist.metrics && hist.metrics.length > 0) {
+        const mapped = hist.metrics.map((r, i) => ({
+          cpu: Math.round(r.cpu_utilization),
+          processes: r.active_processes || 4,
+          txns: r.active_transactions || 2,
+          locks: r.active_locks || 2,
+          deadlocks: r.deadlock_count || 0,
+          t: r.recorded_at ? r.recorded_at.split('T')[1]?.slice(0, 8) || `T-${i}` : `T-${i}`
+        }))
+        setHistory(mapped)
+      }
+    } catch {
+      // Backend unavailable; fallback continues
+    }
+  }
 
   useEffect(() => {
+    loadBackendMetrics()
     const id = setInterval(() => {
-      setHistory(h => {
-        const last = h[h.length - 1]
-        const next = { ...generatePoint(last), t: `T-0` }
-        const updated = h.slice(1).map((item, i) => ({ ...item, t: `T-${h.length - 2 - i}` }))
-        setLive(next)
-        return [...updated, next]
-      })
+      loadBackendMetrics()
     }, 2500)
     return () => clearInterval(id)
   }, [])
@@ -60,10 +91,12 @@ export default function Metrics() {
     <div className="animate-in">
       <div className="page-header">
         <div>
-          <h1 className="page-h1">System Metrics</h1>
-          <p className="page-desc">Live simulation · CPU, processes, transactions, locks &amp; deadlocks</p>
+          <h1 className="page-h1">System Telemetry &amp; Metrics</h1>
+          <p className="page-desc">Real-time CPU telemetry, active process queues, 2PL locks &amp; deadlock monitoring</p>
         </div>
-        <div className="chip chip-green">● Live Sim</div>
+        <div className={`chip ${isLiveBackend ? 'chip-green' : 'chip-amber'}`}>
+          {isLiveBackend ? '● Live Database Telemetry' : '○ Polling Metrics Feed…'}
+        </div>
       </div>
 
       {/* Live metric cards */}

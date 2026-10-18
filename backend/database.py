@@ -244,6 +244,65 @@ def _init_sqlite_schema(conn):
     c.close()
 
 
+def _init_mysql_sample_tables(conn):
+    """Ensure orders, products, and accounts tables exist with sample data in MySQL."""
+    try:
+        c = conn.cursor()
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            customer VARCHAR(100) NOT NULL,
+            status VARCHAR(20) DEFAULT 'pending',
+            amount DECIMAL(10,2) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            stock INT DEFAULT 0,
+            price DECIMAL(10,2) NOT NULL
+        );
+        """)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS accounts (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            owner VARCHAR(100) NOT NULL,
+            balance DECIMAL(12,2) DEFAULT 0.00,
+            currency VARCHAR(10) DEFAULT 'INR'
+        );
+        """)
+        c.execute("SELECT COUNT(*) FROM orders")
+        row = c.fetchone()
+        if row and row[0] == 0:
+            c.execute("""
+            INSERT INTO orders (customer, status, amount) VALUES
+                ('Alice Kumar', 'pending', 4500.00),
+                ('Bob Sharma', 'pending', 1200.00),
+                ('Carol Singh', 'completed', 8750.00),
+                ('David Patel', 'processing', 3400.00),
+                ('Eva Gupta', 'pending', 6100.00);
+            """)
+            c.execute("""
+            INSERT INTO products (name, stock, price) VALUES
+                ('Query Engine Core', 45, 12000.00),
+                ('Memory Lock Module', 18, 4500.00),
+                ('WAL Storage Buffer', 32, 7800.00),
+                ('Deadlock Detector Kit', 10, 9500.00);
+            """)
+            c.execute("""
+            INSERT INTO accounts (owner, balance, currency) VALUES
+                ('Operations Escrow', 485200.00, 'INR'),
+                ('Vendor Settlement', 124000.00, 'INR'),
+                ('Trading Pool A', 950000.00, 'INR');
+            """)
+            conn.commit()
+        c.close()
+    except Exception:
+        pass
+
+
 def get_db_connection():
     """
     Returns a MySQL connection if configured and reachable;
@@ -264,6 +323,7 @@ def get_db_connection():
                 database=db_name,
                 connection_timeout=2
             )
+            _init_mysql_sample_tables(conn)
             return conn
         except Exception:
             # Fall back to SQLite if MySQL connection fails

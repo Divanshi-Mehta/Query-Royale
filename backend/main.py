@@ -22,14 +22,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routers
+# Register routers directly
 app.include_router(scheduling_router)
 app.include_router(dbms_router)
 app.include_router(metrics_router)
 app.include_router(ai_router)
 
+# Also mount under /api prefix for unified client routing
+from fastapi import APIRouter
+api_router = APIRouter(prefix="/api")
+api_router.include_router(scheduling_router)
+api_router.include_router(dbms_router)
+api_router.include_router(metrics_router)
+api_router.include_router(ai_router)
 
 @app.get("/")
+@api_router.get("/")
 def root():
     return {
         "message": "Query Royale backend is running!",
@@ -40,8 +48,11 @@ def root():
 
 
 @app.get("/health")
+@api_router.get("/health")
 def health():
     return {
         "status": "healthy",
         "database": get_db_type()
     }
+
+app.include_router(api_router)

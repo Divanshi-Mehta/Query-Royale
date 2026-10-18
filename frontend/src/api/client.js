@@ -3,10 +3,34 @@
  * Seamlessly interfaces the React frontend with the FastAPI backend and database.
  */
 
-const API_BASE = '/api'
+export function getCustomBackendUrl() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage.getItem('qr_backend_url') || ''
+  }
+  return ''
+}
+
+export function setCustomBackendUrl(url) {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    if (url) {
+      window.localStorage.setItem('qr_backend_url', url.trim().replace(/\/+$/, ''))
+    } else {
+      window.localStorage.removeItem('qr_backend_url')
+    }
+  }
+}
 
 async function request(endpoint, options = {}) {
-  const url = endpoint.startsWith('/') ? endpoint : `${API_BASE}/${endpoint}`
+  const customBase = getCustomBackendUrl()
+  let url = endpoint
+  if (customBase) {
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+    url = `${customBase}${cleanEndpoint}`
+  } else {
+    // Relative URL - will be proxied by Vite dev server or direct in production
+    url = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+  }
+
   try {
     const response = await fetch(url, {
       headers: {
@@ -218,6 +242,23 @@ export async function fetchMetricsHistory(limit = 50) {
   return request(`/metrics/history?limit=${limit}`)
 }
 
+export async function injectDeadlock() {
+  return request('/dbms/deadlocks/inject', {
+    method: 'POST',
+  })
+}
+
+// Database stats & maintenance
+export async function fetchTablesStatus() {
+  return request('/dbms/tables')
+}
+
+export async function resetDatabase() {
+  return request('/dbms/reset', {
+    method: 'POST',
+  })
+}
+
 // AI Assistant
 export async function sendAiChatMessage(message) {
   return request('/ai/chat', {
@@ -225,3 +266,4 @@ export async function sendAiChatMessage(message) {
     body: JSON.stringify({ message }),
   })
 }
+

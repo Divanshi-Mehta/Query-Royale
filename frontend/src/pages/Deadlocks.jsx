@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, RotateCcw, Zap, Target, ShieldAlert } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { AlertTriangle, CheckCircle2, RotateCcw, Zap, Target, ShieldAlert, Plus, RefreshCw } from 'lucide-react'
+import { fetchDeadlocks, resolveDeadlock, injectDeadlock } from '../api/client'
 
 export const INITIAL_DEADLOCKS = [
   {
@@ -164,31 +165,90 @@ export default function Deadlocks({
 
   const [selectedId, setSelectedId] = useState(INITIAL_DEADLOCKS[0].id)
   const [resolving, setResolving] = useState(false)
+  const [injecting, setInjecting] = useState(false)
   const [toastMsg, setToastMsg] = useState(null)
+  const [isLive, setIsLive] = useState(false)
+
+  useEffect(() => {
+    loadLiveDeadlocks()
+  }, [])
+
+  async function loadLiveDeadlocks() {
+    try {
+      const res = await fetchDeadlocks()
+      if (res && res.deadlocks && res.deadlocks.length > 0) {
+        setIsLive(true)
+        const mapped = res.deadlocks.map(d => ({
+          id: `DL-${d.deadlock_id}`,
+          rawId: d.deadlock_id,
+          detected: typeof d.detected_at === 'string' && d.detected_at.includes('T')
+            ? d.detected_at.split('T')[1].slice(0, 8)
+            : (d.detected_at || 'Just now'),
+          status: d.resolution_status === 'DETECTED' ? 'Active' : 'Resolved',
+          cycle: [`TXN-${d.transaction_1_id}`, `TXN-${d.transaction_2_id}`],
+          victim: d.resolved_transaction_id ? `TXN-${d.resolved_transaction_id}` : `TXN-${d.transaction_2_id}`,
+          resolution: d.resolution_status === 'RESOLVED' ? 'Aborted & Rolled Back' : 'Pending',
+          description: `Resource lock conflict between TXN-${d.transaction_1_id} and TXN-${d.transaction_2_id} on tables orders & products.`,
+          resources: ['orders', 'products'],
+        }))
+
+        setDeadlocks(mapped)
+        if (!selectedId || !mapped.find(m => m.id === selectedId)) {
+          setSelectedId(mapped[0].id)
+        }
+      }
+    } catch {
+      // Backend not yet reached; fallback remains available
+    }
+  }
 
   const selected = deadlocks.find(d => d.id === selectedId) || deadlocks[0]
   const activeCount = deadlocks.filter(d => d.status === 'Active').length
 
-  function handleResolve(idToResolve) {
+  async function handleResolve(idToResolve) {
     setResolving(true)
-    setTimeout(() => {
-      setDeadlocks(prev =>
-        prev.map(d =>
-          d.id === idToResolve
-            ? { ...d, status: 'Resolved', resolution: 'Aborted & Rolled Back' }
-            : d
+    const target = deadlocks.find(d => d.id === idToResolve) || selected
+    const rawId = target?.rawId
+
+    try {
+      if (rawId) {
+        const res = await resolveDeadlock(rawId, null, 'YOUNGEST')
+        await loadLiveDeadlocks()
+        setToastMsg(res.message || `Deadlock ${idToResolve} successfully resolved!`)
+      } else {
+        // Fallback local resolution
+        setDeadlocks(prev =>
+          prev.map(d =>
+            d.id === idToResolve
+              ? { ...d, status: 'Resolved', resolution: 'Aborted & Rolled Back' }
+              : d
+          )
         )
-      )
+        const victim = target?.victim || 'victim'
+        setToastMsg(`Deadlock ${idToResolve} successfully resolved! Victim ${victim} was aborted.`)
+      }
+    } catch (err) {
+      setToastMsg(`Resolution failed: ${err.message}`)
+    } finally {
       setResolving(false)
-      const victim = deadlocks.find(d => d.id === idToResolve)?.victim || selected?.victim || 'victim'
-      setToastMsg(`Deadlock ${idToResolve} successfully resolved! Victim ${victim} was aborted and its locks released.`)
-    }, 600)
+    }
+  }
+
+  async function handleInjectDeadlock() {
+    setInjecting(true)
+    try {
+      const res = await injectDeadlock()
+      await loadLiveDeadlocks()
+      setToastMsg(res.message || 'New deadlock successfully injected and detected in DB!')
+    } catch (err) {
+      setToastMsg(`Failed to inject deadlock: ${err.message}`)
+    } finally {
+      setInjecting(false)
+    }
   }
 
   function handleReset() {
-    setDeadlocks(INITIAL_DEADLOCKS)
-    setSelectedId(INITIAL_DEADLOCKS[0].id)
-    setToastMsg(null)
+    handleInjectDeadlock()
   }
 
   return (
@@ -227,8 +287,27 @@ export default function Deadlocks({
           <h1 className="page-h1">Deadlock Detector</h1>
           <p className="page-desc">Cycle detection via Wait-For Graph (WFG) · Victim selection &amp; resolution</p>
         </div>
-        <div className={`chip ${activeCount > 0 ? 'chip-red' : 'chip-green'}`}>
-          {activeCount > 0 ? `⚠ ${activeCount} Active Deadlock` : '✓ All Deadlocks Resolved'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleInjectDeadlock}
+            disabled={injecting}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}
+          >
+            <Zap size={13} color="#f59e0b" />
+            <span>{injecting ? 'Injecting…' : '⚡ Inject Deadlock Cycle'}</span>
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={loadLiveDeadlocks}
+            title="Refresh deadlocks"
+            style={{ padding: '6px 8px' }}
+          >
+            <RefreshCw size={13} />
+          </button>
+          <div className={`chip ${activeCount > 0 ? 'chip-red' : 'chip-green'}`}>
+            {activeCount > 0 ? `⚠ ${activeCount} Active Deadlock` : '✓ All Deadlocks Resolved'}
+          </div>
         </div>
       </div>
 

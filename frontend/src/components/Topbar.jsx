@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Bell, Clock, CheckCircle2, AlertTriangle, ShieldCheck, X } from 'lucide-react'
+import { checkBackendHealth } from '../api/client'
 
 const PAGE_META = {
   dashboard: {
@@ -42,6 +43,27 @@ const PAGE_META = {
 
 export default function Topbar({ activePage, onNavigate }) {
   const [showNotifications, setShowNotifications] = useState(false)
+  const [backendHealth, setBackendHealth] = useState({ online: false, db: 'sqlite' })
+
+  useEffect(() => {
+    async function ping() {
+      try {
+        const res = await checkBackendHealth()
+        if (res && res.status === 'healthy') {
+          setBackendHealth({ online: true, db: res.database || 'sqlite' })
+        } else {
+          setBackendHealth(prev => ({ ...prev, online: false }))
+        }
+      } catch {
+        setBackendHealth(prev => ({ ...prev, online: false }))
+      }
+    }
+
+    ping()
+    const timer = setInterval(ping, 4000)
+    return () => clearInterval(timer)
+  }, [])
+
   const [notifications, setNotifications] = useState([
     {
       id: 1,
@@ -278,16 +300,17 @@ export default function Topbar({ activePage, onNavigate }) {
             fontWeight: 600,
             color: '#f8fafc',
           }}
+          title={backendHealth.online ? `FastAPI & ${backendHealth.db.toUpperCase()} connected` : 'Connecting to backend…'}
         >
           <Clock size={14} color="#94a3b8" />
-          <span>Live</span>
+          <span>{backendHealth.online ? `Live (${backendHealth.db.toUpperCase()})` : 'Backend Sync…'}</span>
           <span
             style={{
               width: 8,
               height: 8,
               borderRadius: '50%',
-              background: '#10b981',
-              boxShadow: '0 0 8px #10b981',
+              background: backendHealth.online ? '#10b981' : '#f59e0b',
+              boxShadow: backendHealth.online ? '0 0 8px #10b981' : '0 0 8px #f59e0b',
               animation: 'pulse 1.8s infinite',
             }}
           />

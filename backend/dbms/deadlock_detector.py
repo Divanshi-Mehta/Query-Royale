@@ -282,9 +282,26 @@ def resolve_deadlock(
         SET
             resolution_status = %s,
             resolved_transaction_id = %s
-        WHERE deadlock_id = %s
+        WHERE (
+            transaction_1_id = %s
+            AND transaction_2_id = %s
+        )
+        OR (
+            transaction_1_id = %s
+            AND transaction_2_id = %s
+        )
         """
-        cursor.execute(update_query, ("RESOLVED", victim_tx_id, deadlock_id))
+        cursor.execute(
+            update_query,
+            (
+                "RESOLVED",
+                victim_tx_id,
+                tx1_id,
+                tx2_id,
+                tx2_id,
+                tx1_id
+            )
+        )
         connection.commit()
 
         return {

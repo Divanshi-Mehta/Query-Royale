@@ -10,8 +10,18 @@ import {
   MoreVertical,
   ArrowLeftRight,
   Lock,
-  Monitor
+  Monitor,
+  RefreshCw,
+  Database
 } from 'lucide-react'
+import {
+  fetchDashboardMetrics,
+  fetchDbmsStatus,
+  fetchTransactions,
+  fetchLocks,
+  fetchDeadlocks,
+  checkBackendHealth
+} from '../api/client'
 
 // Sparkline SVG Component for smooth wave lines matching mockup
 function SparklineWave({ color = '#3b82f6', height = 36, points = [12, 18, 14, 25, 20, 28, 22, 34, 28, 30] }) {
@@ -135,6 +145,69 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
   const [liveCpu, setLiveCpu] = useState(32)
   const [liveRam, setLiveRam] = useState(62)
   const [showOptionsMenu, setShowOptionsMenu] = useState(false)
+  const [cpuSparkline, setCpuSparkline] = useState([15, 22, 18, 32, 28, 40, 32, 45, 38, 32])
+
+  // Live Backend & Database State
+  const [backendStatus, setBackendStatus] = useState({ online: false, dbType: 'sqlite' })
+  const [dbmsData, setDbmsData] = useState(null)
+  const [dashboardMetrics, setDashboardMetrics] = useState(null)
+  const [liveTransactions, setLiveTransactions] = useState([])
+  const [liveLocks, setLiveLocks] = useState([])
+
+  // Load real telemetry from FastAPI backend and database
+  async function syncBackendData() {
+    try {
+      const [health, metrics, status, txRes, lockRes, deadlockRes] = await Promise.all([
+        checkBackendHealth().catch(() => null),
+        fetchDashboardMetrics().catch(() => null),
+        fetchDbmsStatus().catch(() => null),
+        fetchTransactions(10).catch(() => null),
+        fetchLocks().catch(() => null),
+        fetchDeadlocks().catch(() => null),
+      ])
+
+      if (health && health.status === 'healthy') {
+        setBackendStatus({ online: true, dbType: health.database || 'sqlite' })
+      } else {
+        setBackendStatus(prev => ({ ...prev, online: false }))
+      }
+
+      if (metrics) {
+        setDashboardMetrics(metrics)
+        if (metrics.cpu_utilization != null) {
+          setLiveCpu(Math.round(metrics.cpu_utilization))
+        }
+        if (metrics.sparkline_points && metrics.sparkline_points.length > 0) {
+          setCpuSparkline(metrics.sparkline_points)
+        }
+      }
+
+      if (status) {
+        setDbmsData(status)
+      }
+
+      if (txRes && txRes.transactions) {
+        setLiveTransactions(txRes.transactions)
+      }
+
+      if (lockRes && lockRes.locks) {
+        setLiveLocks(lockRes.locks)
+      }
+    } catch {
+      // Backend temporarily offline; fallback remains active
+    }
+  }
+
+  useEffect(() => {
+    syncBackendData()
+    if (isPaused) return
+
+    const timer = setInterval(() => {
+      syncBackendData()
+    }, 3000)
+
+    return () => clearInterval(timer)
+  }, [isPaused])
 
   // Simulation timer for elapsed time and slight fluctuations
   useEffect(() => {
@@ -152,12 +225,6 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
               elapsed: p.elapsed + 1,
             }
           }
-          if (p.status === 'Waiting' && Math.random() < 0.15) {
-            return {
-              ...p,
-              elapsed: p.elapsed + 1,
-            }
-          }
           return {
             ...p,
             elapsed: p.elapsed + 1,
@@ -165,8 +232,7 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
         })
       )
 
-      // Slight CPU and RAM wobble
-      setLiveCpu(curr => Math.max(24, Math.min(68, curr + ((Math.random() * 4 - 2) | 0))))
+      // Slight RAM wobble
       setLiveRam(curr => Math.max(55, Math.min(75, curr + ((Math.random() * 2 - 1) | 0))))
     }, 1500)
 
@@ -179,18 +245,47 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
     return `00:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
   }
 
+  const queryCount = dashboardMetrics?.total_queries ?? (dashboardMetrics?.active_processes ?? 128)
+  const deadlocksDisplay = dbmsData?.active_deadlocks ?? activeDeadlocksCount
+
   return (
     <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* System Overview Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Monitor size={18} color="#6366f1" />
           <h2 style={{ fontSize: 15, fontWeight: 700, color: '#f8fafc', margin: 0, letterSpacing: '0.02em' }}>
             System Overview
           </h2>
         </div>
-        <div style={{ fontSize: 11, color: '#64748b' }}>
-          Real-time Engine Telemetry · 4 Cores Active
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            className={`chip ${backendStatus.online ? 'chip-green' : 'chip-amber'}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: backendStatus.online ? '#10b981' : '#f59e0b',
+                boxShadow: backendStatus.online ? '0 0 6px #10b981' : 'none'
+              }}
+            />
+            <span>
+              {backendStatus.online
+                ? `● Database Engine: ${backendStatus.dbType.toUpperCase()}`
+                : '○ Backend Connecting…'}
+            </span>
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={syncBackendData}
+            title="Refresh telemetry from backend"
+            style={{ padding: '4px 8px' }}
+          >
+            <RefreshCw size={12} />
+          </button>
         </div>
       </div>
 
@@ -231,19 +326,21 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
         </div>
 
         {/* Card 3: Queries */}
-        <div className="overview-kpi-card">
+        <div className="overview-kpi-card" onClick={() => onNavigate && onNavigate('sql')} style={{ cursor: 'pointer' }} title="Click to open SQL Queries">
           <div className="overview-kpi-top">
             <div className="overview-kpi-icon" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}>
               <FileText size={22} />
             </div>
             <div>
               <div className="overview-kpi-label">Queries</div>
-              <div className="overview-kpi-val">128</div>
-              <div className="overview-kpi-sub">Active</div>
+              <div className="overview-kpi-val">{queryCount}</div>
+              <div className="overview-kpi-sub">
+                {backendStatus.online ? 'Recorded in DB' : 'Active'}
+              </div>
             </div>
           </div>
           <div className="overview-sparkline-wrap">
-            <SparklineWave color="#8b5cf6" points={[110, 118, 114, 122, 120, 129, 125, 134, 126, 128]} />
+            <SparklineWave color="#8b5cf6" points={[110, 118, 114, 122, 120, 129, 125, 134, 126, Math.max(10, queryCount)]} />
           </div>
         </div>
 
@@ -258,8 +355,8 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
             <div
               className="overview-kpi-icon"
               style={{
-                background: activeDeadlocksCount > 0 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                color: activeDeadlocksCount > 0 ? '#ef4444' : '#10b981'
+                background: deadlocksDisplay > 0 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                color: deadlocksDisplay > 0 ? '#ef4444' : '#10b981'
               }}
             >
               <AlertTriangle size={22} />
@@ -268,19 +365,19 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
               <div className="overview-kpi-label">Deadlocks</div>
               <div
                 className="overview-kpi-val"
-                style={{ color: activeDeadlocksCount > 0 ? '#ef4444' : '#10b981' }}
+                style={{ color: deadlocksDisplay > 0 ? '#ef4444' : '#10b981' }}
               >
-                {activeDeadlocksCount}
+                {deadlocksDisplay}
               </div>
               <div className="overview-kpi-sub">
-                {activeDeadlocksCount > 0 ? 'Detected' : 'All Resolved'}
+                {deadlocksDisplay > 0 ? 'Active in DB' : 'All Clear'}
               </div>
             </div>
           </div>
           <div className="overview-sparkline-wrap">
             <SparklineWave
-              color={activeDeadlocksCount > 0 ? '#ef4444' : '#10b981'}
-              points={[1, 0, 2, 1, 2, 2, 3, 2, 1, activeDeadlocksCount]}
+              color={deadlocksDisplay > 0 ? '#ef4444' : '#10b981'}
+              points={[1, 0, 2, 1, 2, 2, 3, 2, 1, deadlocksDisplay]}
             />
           </div>
         </div>
@@ -599,31 +696,45 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
               <thead>
                 <tr>
                   <th>Transaction ID</th>
-                  <th>Isolation</th>
+                  <th>Process ID</th>
                   <th>State</th>
-                  <th>Locks Held</th>
-                  <th>Statements</th>
-                  <th>Duration</th>
+                  <th>Start Time</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {[
-                  { id: 'TXN-1040', iso: 'REPEATABLE READ', state: 'COMMITTED', locks: 0, stmts: 3, dur: '142ms' },
-                  { id: 'TXN-1041', iso: 'REPEATABLE READ', state: 'ACTIVE', locks: 2, stmts: 5, dur: '1.2s' },
-                  { id: 'TXN-1042', iso: 'READ COMMITTED', state: 'ACTIVE', locks: 1, stmts: 2, dur: '850ms' },
-                  { id: 'TXN-1043', iso: 'SERIALIZABLE', state: 'WAITING', locks: 1, stmts: 1, dur: '2.4s' },
-                ].map(t => (
-                  <tr key={t.id}>
-                    <td style={{ fontFamily: 'JetBrains Mono', color: '#6366f1', fontWeight: 600 }}>{t.id}</td>
-                    <td style={{ fontSize: 11, color: '#94a3b8' }}>{t.iso}</td>
+                {(liveTransactions.length > 0 ? liveTransactions : [
+                  { transaction_id: 1040, process_id: 1, state: 'COMMITTED', start_time: '23:00:00' },
+                  { transaction_id: 1041, process_id: 2, state: 'ACTIVE', start_time: '23:01:10' },
+                  { transaction_id: 1042, process_id: 3, state: 'ACTIVE', start_time: '23:02:15' },
+                  { transaction_id: 1043, process_id: 4, state: 'WAITING', start_time: '23:03:00' },
+                ]).map(t => (
+                  <tr key={t.transaction_id}>
+                    <td style={{ fontFamily: 'JetBrains Mono', color: '#6366f1', fontWeight: 600 }}>
+                      TXN-{t.transaction_id}
+                    </td>
+                    <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11, color: '#94a3b8' }}>
+                      PID-{t.process_id}
+                    </td>
                     <td>
-                      <span className={`chip ${t.state === 'COMMITTED' ? 'chip-green' : t.state === 'ACTIVE' ? 'chip-blue' : 'chip-amber'}`}>
+                      <span className={`chip ${t.state === 'COMMITTED' ? 'chip-green' : t.state === 'ACTIVE' ? 'chip-blue' : t.state === 'DEADLOCK' ? 'chip-red' : 'chip-amber'}`}>
                         {t.state}
                       </span>
                     </td>
-                    <td style={{ fontFamily: 'JetBrains Mono' }}>{t.locks}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono' }}>{t.stmts}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono', color: '#38bdf8' }}>{t.dur}</td>
+                    <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11, color: '#94a3b8' }}>
+                      {typeof t.start_time === 'string' && t.start_time.includes('T')
+                        ? t.start_time.split('T')[1].slice(0, 8)
+                        : (t.start_time || 'Just now')}
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => onNavigate && onNavigate('dbms')}
+                        style={{ fontSize: 10, padding: '2px 8px' }}
+                      >
+                        Manage &rarr;
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -642,30 +753,34 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
                   <th>Resource Table</th>
                   <th>Type</th>
                   <th>State</th>
-                  <th>Mode</th>
+                  <th>Requested At</th>
                 </tr>
               </thead>
               <tbody>
-                {[
-                  { id: 'L-001', txn: 'TXN-1042', res: 'orders', type: 'SHARED', state: 'GRANTED', mode: 'READ' },
-                  { id: 'L-002', txn: 'TXN-1041', res: 'products', type: 'EXCLUSIVE', state: 'GRANTED', mode: 'WRITE' },
-                  { id: 'L-003', txn: 'TXN-1043', res: 'orders', type: 'EXCLUSIVE', state: 'WAITING', mode: 'WRITE' },
-                ].map(l => (
-                  <tr key={l.id}>
-                    <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11 }}>{l.id}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono', color: '#818cf8' }}>{l.txn}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono' }}>{l.res}</td>
+                {(liveLocks.length > 0 ? liveLocks : [
+                  { lock_id: 'L-001', transaction_id: 1042, resource_name: 'orders', lock_type: 'SHARED', lock_state: 'GRANTED', requested_at: '23:01:02' },
+                  { lock_id: 'L-002', transaction_id: 1041, resource_name: 'products', lock_type: 'EXCLUSIVE', lock_state: 'GRANTED', requested_at: '23:00:47' },
+                  { lock_id: 'L-003', transaction_id: 1043, resource_name: 'orders', lock_type: 'EXCLUSIVE', lock_state: 'WAITING', requested_at: '23:01:10' },
+                ]).map(l => (
+                  <tr key={l.lock_id}>
+                    <td style={{ fontFamily: 'JetBrains Mono', fontSize: 11 }}>#{l.lock_id}</td>
+                    <td style={{ fontFamily: 'JetBrains Mono', color: '#818cf8' }}>TXN-{l.transaction_id}</td>
+                    <td style={{ fontFamily: 'JetBrains Mono' }}>{l.resource_name}</td>
                     <td>
-                      <span className={`chip ${l.type === 'SHARED' ? 'chip-cyan' : 'chip-purple'}`}>
-                        {l.type}
+                      <span className={`chip ${l.lock_type === 'SHARED' ? 'chip-cyan' : 'chip-purple'}`}>
+                        {l.lock_type}
                       </span>
                     </td>
                     <td>
-                      <span className={`chip ${l.state === 'GRANTED' ? 'chip-green' : 'chip-amber'}`}>
-                        {l.state}
+                      <span className={`chip ${l.lock_state === 'GRANTED' ? 'chip-green' : 'chip-amber'}`}>
+                        {l.lock_state}
                       </span>
                     </td>
-                    <td style={{ fontSize: 11, color: '#94a3b8' }}>{l.mode}</td>
+                    <td style={{ fontSize: 11, color: '#94a3b8' }}>
+                      {typeof l.requested_at === 'string' && l.requested_at.includes('T')
+                        ? l.requested_at.split('T')[1].slice(0, 8)
+                        : (l.requested_at || 'Live')}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -677,7 +792,7 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
       {/* 3 Bottom Summary Cards matching the mockup image */}
       <div className="bottom-summary-grid">
         {/* Card 1: Transactions */}
-        <div className="bottom-summary-card">
+        <div className="bottom-summary-card" onClick={() => onNavigate && onNavigate('dbms')} style={{ cursor: 'pointer' }} title="Click to view DBMS Transactions">
           <div className="bottom-summary-left">
             <div
               style={{
@@ -699,10 +814,10 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
                 Transactions
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#ffffff', lineHeight: 1.1 }}>
-                56
+                {dbmsData?.active_transactions ?? 4}
               </div>
               <div style={{ fontSize: 11, color: '#64748b' }}>
-                Active Transactions
+                {dbmsData ? `${dbmsData.total_transactions} Total in DB` : 'Active Transactions'}
               </div>
             </div>
           </div>
@@ -710,7 +825,7 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
         </div>
 
         {/* Card 2: Locks */}
-        <div className="bottom-summary-card">
+        <div className="bottom-summary-card" onClick={() => onNavigate && onNavigate('locks')} style={{ cursor: 'pointer' }} title="Click to view Locks">
           <div className="bottom-summary-left">
             <div
               style={{
@@ -732,18 +847,18 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
                 Locks
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#ffffff', lineHeight: 1.1 }}>
-                24
+                {dbmsData?.active_locks ?? 2}
               </div>
               <div style={{ fontSize: 11, color: '#64748b' }}>
-                Active Locks
+                {dbmsData ? `${dbmsData.waiting_locks} Waiting Lock(s)` : 'Active Locks'}
               </div>
             </div>
           </div>
           <MiniBarChart color="#8b5cf6" heights={[40, 50, 70, 60, 85, 45, 95, 80, 60, 75]} />
         </div>
 
-        {/* Card 3: Deadlocks (24h) */}
-        <div className="bottom-summary-card">
+        {/* Card 3: Deadlocks */}
+        <div className="bottom-summary-card" onClick={() => onNavigate && onNavigate('deadlocks')} style={{ cursor: 'pointer' }} title="Click to view Deadlocks">
           <div className="bottom-summary-left">
             <div
               style={{
@@ -762,13 +877,13 @@ export default function Dashboard({ onNavigate, activeDeadlocksCount = 0 }) {
             </div>
             <div>
               <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Deadlocks (24h)
+                Deadlocks
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#ffffff', lineHeight: 1.1 }}>
-                7
+                {dbmsData?.total_deadlocks ?? 2}
               </div>
               <div style={{ fontSize: 11, color: '#64748b' }}>
-                Total Deadlocks
+                {dbmsData?.active_deadlocks ? `${dbmsData.active_deadlocks} Active Cycles` : 'Total Recorded Incidents'}
               </div>
             </div>
           </div>
