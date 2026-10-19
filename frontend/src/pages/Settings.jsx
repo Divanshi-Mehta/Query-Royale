@@ -18,7 +18,7 @@ import {
 } from '../api/client'
 
 export default function Settings() {
-  const [backendUrl, setBackendUrl] = useState(getCustomBackendUrl() || 'http://localhost:8000')
+  const [backendUrl, setBackendUrl] = useState(getCustomBackendUrl() || 'http://localhost:8001')
   const [healthInfo, setHealthInfo] = useState(null)
   const [tablesInfo, setTablesInfo] = useState(null)
   const [testing, setTesting] = useState(false)
@@ -47,7 +47,7 @@ export default function Settings() {
 
   function handleSave(e) {
     e.preventDefault()
-    setCustomBackendUrl(backendUrl === 'http://localhost:8000' ? '' : backendUrl)
+    setCustomBackendUrl(backendUrl === 'http://localhost:8001' ? '' : backendUrl)
     setToast({ type: 'success', msg: 'Configuration saved! Checking connection…' })
     checkConnection()
     setTimeout(() => setToast(null), 3000)
@@ -119,7 +119,7 @@ export default function Settings() {
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: healthInfo?.status === 'healthy' ? '#10b981' : '#f59e0b' }} />
                 <span>{healthInfo?.status === 'healthy' ? 'Operational' : 'Disconnected'}</span>
               </div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Port: 8000 / Vite Proxy</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Port: 8001 / Vite Proxy</div>
             </div>
 
             <div style={{ background: 'var(--bg-elevated)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--border-subtle)' }}>
@@ -189,10 +189,10 @@ export default function Settings() {
               className="form-control"
               value={backendUrl}
               onChange={e => setBackendUrl(e.target.value)}
-              placeholder="http://localhost:8000"
+              placeholder="http://localhost:8001"
             />
             <span style={{ fontSize: 11, color: '#64748b' }}>
-              Leave as <code>http://localhost:8000</code> or blank to use standard Vite dev server proxying.
+              Leave as <code>http://localhost:8001</code> or blank to use standard Vite dev server proxying.
             </span>
           </div>
 
@@ -204,7 +204,7 @@ export default function Settings() {
               type="button"
               className="btn btn-ghost"
               onClick={() => {
-                setBackendUrl('http://localhost:8000')
+                setBackendUrl('http://localhost:8001')
                 setCustomBackendUrl('')
                 checkConnection()
               }}

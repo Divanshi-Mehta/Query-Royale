@@ -190,13 +190,23 @@ function runRR(procs, quantum = 3) {
 const PALETTE = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#6366f1', '#14b8a6']
 
 export default function Scheduler() {
-  const [algorithm, setAlgorithm] = useState('FCFS')
+  const [algorithm, setAlgorithm] = useState(() => {
+    const savedAlgorithm = localStorage.getItem('queryRoyaleSelectedAlgorithm')
+
+    return ALGORITHMS.some(a => a.id === savedAlgorithm)
+      ? savedAlgorithm
+      : 'FCFS'
+  })
   const [quantum, setQuantum] = useState(3)
   const [processes, setProcesses] = useState(PRESETS.default)
   const [results, setResults] = useState(null)
   const [gantt, setGantt] = useState(null)
   const [running, setRunning] = useState(false)
   const [showComparison, setShowComparison] = useState(false)
+
+  useEffect(() => {
+    localStorage.setItem('queryRoyaleSelectedAlgorithm', algorithm)
+  }, [algorithm])
 
   function addRow() {
     const nextPid = processes.length > 0 ? Math.max(...processes.map(p => p.pid)) + 1 : 1
@@ -274,15 +284,26 @@ export default function Scheduler() {
     setRunning(false)
   }
 
-  // Calculate metrics
+  // Calculate scheduling metrics
   const avgWait = results?.length
     ? (results.reduce((acc, p) => acc + (p.waiting || 0), 0) / results.length).toFixed(2)
     : '4.20'
+
   const avgTurn = results?.length
     ? (results.reduce((acc, p) => acc + (p.turnaround || 0), 0) / results.length).toFixed(2)
     : '9.80'
+
   const totalBurst = processes.reduce((acc, p) => acc + p.burst, 0)
-  const cpuUtil = results?.length ? '96.4%' : '32%'
+
+  // Scheduler CPU utilization = total burst time / total elapsed scheduling time
+  const totalElapsedTime = gantt?.length
+    ? Math.max(...gantt.map(segment => segment.end)) -
+    Math.min(0, ...gantt.map(segment => segment.start))
+    : 0
+
+  const cpuUtil = results?.length && totalElapsedTime > 0
+    ? `${Math.min(100, (totalBurst / totalElapsedTime) * 100).toFixed(1)}%`
+    : '—'
 
   // Algorithm comparison rankings
   const comparisonResults = [
@@ -304,9 +325,9 @@ export default function Scheduler() {
               <Cpu size={22} />
             </div>
             <div>
-              <div className="overview-kpi-label">CPU Utilization</div>
+              <div className="overview-kpi-label">Scheduler CPU Utilization</div>
               <div className="overview-kpi-val">{cpuUtil}</div>
-              <div className="overview-kpi-sub">Active Core 0</div>
+              <div className="overview-kpi-sub">Based on scheduling timeline</div>
             </div>
           </div>
         </div>

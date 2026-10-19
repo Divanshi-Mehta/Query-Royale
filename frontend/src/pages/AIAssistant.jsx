@@ -109,7 +109,7 @@ export default function AIAssistant({ onNavigate }) {
           id: ++msgCounter,
           sender: 'assistant',
           isError: true,
-          text: `Unable to get a response from the backend. Please check that the FastAPI server is running on port 8000.\n\nError: ${err.message || 'Request failed'}`,
+          text: `Unable to get a response from the backend. Please check that the FastAPI server is running on port 8001.\n\nError: ${err.message || 'Request failed'}`,
           time: getFormattedTime(),
         },
       ])
