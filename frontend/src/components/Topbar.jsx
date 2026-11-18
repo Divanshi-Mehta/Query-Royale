@@ -1,11 +1,16 @@
+<<<<<<< HEAD
 import { useState, useEffect } from 'react'
 import { Bell, Clock, CheckCircle2, AlertTriangle, ShieldCheck, X } from 'lucide-react'
 import { checkBackendHealth } from '../api/client'
+=======
+import { useState } from 'react'
+import { Bell, Clock, CheckCircle2, AlertTriangle, ShieldCheck, X, LogOut, ShieldAlert } from 'lucide-react'
+>>>>>>> d2d547e (feat: add login page with two-factor authentication (2FA) and backend integration)
 
 const PAGE_META = {
   dashboard: {
     title: 'Dashboard',
-    subtitle: 'Welcome back, Admin!',
+    subtitle: 'Welcome back!',
   },
   scheduler: {
     title: 'OS Scheduler',
@@ -41,7 +46,7 @@ const PAGE_META = {
   },
 }
 
-export default function Topbar({ activePage, onNavigate }) {
+export default function Topbar({ activePage, onNavigate, user, onLogout }) {
   const [showNotifications, setShowNotifications] = useState(false)
   const [backendHealth, setBackendHealth] = useState({ online: false, db: 'sqlite' })
 
@@ -102,6 +107,10 @@ export default function Topbar({ activePage, onNavigate }) {
     subtitle: 'OS & DBMS Simulation Platform',
   }
 
+  const username = user?.username || 'Admin'
+  const is2FA = Boolean(user?.is_2fa_enabled)
+  const pageSubtitle = activePage === 'dashboard' ? `Welcome back, ${username}!` : meta.subtitle
+
   function dismissNotification(e, id) {
     e.stopPropagation()
     setNotifications(prev => prev.filter(n => n.id !== id))
@@ -115,7 +124,7 @@ export default function Topbar({ activePage, onNavigate }) {
           {meta.title}
         </h1>
         <p style={{ fontSize: 12, color: '#94a3b8', margin: '2px 0 0 0' }}>
-          {meta.subtitle}
+          {pageSubtitle}
         </p>
       </div>
 
@@ -315,6 +324,37 @@ export default function Topbar({ activePage, onNavigate }) {
             }}
           />
         </div>
+
+        {/* Quick Sign Out Button */}
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#f87171',
+              cursor: 'pointer',
+              transition: 'var(--transition)',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.18)'
+              e.currentTarget.style.color = '#ffffff'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'
+              e.currentTarget.style.color = '#f87171'
+            }}
+            title="Sign Out"
+          >
+            <LogOut size={16} />
+          </button>
+        )}
       </div>
     </header>
   )

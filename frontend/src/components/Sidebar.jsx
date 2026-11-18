@@ -12,7 +12,10 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  LogOut,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react'
 
 export default function Sidebar({
@@ -20,7 +23,9 @@ export default function Sidebar({
   onNavigate,
   isCollapsed,
   onToggleCollapse,
-  activeDeadlocksCount = 0
+  activeDeadlocksCount = 0,
+  user,
+  onLogout,
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false)
 
@@ -34,12 +39,17 @@ export default function Sidebar({
       id: 'deadlocks',
       label: 'Deadlocks',
       icon: AlertTriangle,
-      badge: activeDeadlocksCount > 0 ? String(activeDeadlocksCount) : null
+      badge: activeDeadlocksCount > 0 ? String(activeDeadlocksCount) : null,
     },
     { id: 'ai', label: 'Assistance', icon: Bot },
     { id: 'metrics', label: 'Analysis', icon: BarChart3 },
     { id: 'settings', label: 'Settings', icon: Settings },
   ]
+
+  const username = user?.username || 'Admin'
+  const email = user?.email || 'admin@queryroyale.com'
+  const is2FA = Boolean(user?.is_2fa_enabled)
+  const initials = username.slice(0, 2).toUpperCase()
 
   return (
     <aside className={`sidebar ${isCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -57,7 +67,7 @@ export default function Sidebar({
               justifyContent: 'center',
               color: '#ffffff',
               boxShadow: '0 0 12px rgba(99, 102, 241, 0.4)',
-              flexShrink: 0
+              flexShrink: 0,
             }}
           >
             <Crown size={18} strokeWidth={2.2} />
@@ -70,7 +80,7 @@ export default function Sidebar({
                 letterSpacing: '0.08em',
                 color: '#ffffff',
                 textTransform: 'uppercase',
-                whiteSpace: 'nowrap'
+                whiteSpace: 'nowrap',
               }}
             >
               Query Royale
@@ -121,14 +131,48 @@ export default function Sidebar({
         <div
           className="user-profile-card"
           onClick={() => setShowUserMenu(!showUserMenu)}
-          title="Admin Account"
+          title={`${username} (${email})`}
         >
-          <div className="user-avatar-badge">AR</div>
+          <div className="user-avatar-badge">{initials}</div>
           {!isCollapsed && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#f8fafc', lineHeight: 1.2 }}>
-                  Admin
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#f8fafc', lineHeight: 1.2 }}>
+                    {username}
+                  </div>
+                  {is2FA ? (
+                    <span
+                      title="2FA Protected"
+                      style={{
+                        fontSize: 9,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        background: 'rgba(34, 211, 238, 0.15)',
+                        color: '#22d3ee',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3,
+                      }}
+                    >
+                      <ShieldCheck size={10} /> 2FA
+                    </span>
+                  ) : (
+                    <span
+                      title="2FA Disabled - Enable in Settings"
+                      style={{
+                        fontSize: 9,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        background: 'rgba(251, 191, 36, 0.15)',
+                        color: '#fbbf24',
+                        fontWeight: 700,
+                      }}
+                    >
+                      2FA Off
+                    </span>
+                  )}
                 </div>
                 <div
                   style={{
@@ -136,10 +180,11 @@ export default function Sidebar({
                     color: '#64748b',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
-                    textOverflow: 'ellipsis'
+                    textOverflow: 'ellipsis',
+                    marginTop: 2,
                   }}
                 >
-                  admin@queryroyale.com
+                  {email}
                 </div>
               </div>
               <ChevronDown size={14} color="#64748b" />
@@ -147,7 +192,7 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* Small quick popover */}
+        {/* User Account Popover */}
         {showUserMenu && !isCollapsed && (
           <div
             style={{
@@ -162,31 +207,73 @@ export default function Sidebar({
               marginBottom: 8,
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
               zIndex: 30,
-              fontSize: 11
+              fontSize: 12,
             }}
           >
-            <div style={{ color: '#94a3b8', padding: '4px 8px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 4 }}>
-              Active Session: Live Demo
+            <div
+              style={{
+                color: '#94a3b8',
+                padding: '6px 8px',
+                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                marginBottom: 4,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span>Security Status:</span>
+              <span style={{ color: is2FA ? '#34d399' : '#fbbf24', fontWeight: 600 }}>
+                {is2FA ? '2FA Active' : '2FA Inactive'}
+              </span>
             </div>
+
             <button
-              onClick={() => { onNavigate('settings'); setShowUserMenu(false) }}
+              onClick={() => {
+                onNavigate('settings')
+                setShowUserMenu(false)
+              }}
               style={{
                 width: '100%',
                 background: 'none',
                 border: 'none',
                 color: '#e2e8f0',
-                padding: '6px 8px',
+                padding: '8px',
                 textAlign: 'left',
                 borderRadius: 6,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8
+                gap: 8,
               }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
             >
-              <Settings size={13} /> Settings &amp; Mock API
+              <Settings size={14} /> Security &amp; 2FA Settings
+            </button>
+
+            <button
+              onClick={() => {
+                setShowUserMenu(false)
+                onLogout && onLogout()
+              }}
+              style={{
+                width: '100%',
+                background: 'none',
+                border: 'none',
+                color: '#f87171',
+                padding: '8px',
+                textAlign: 'left',
+                borderRadius: 6,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 2,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <LogOut size={14} /> Sign Out
             </button>
           </div>
         )}

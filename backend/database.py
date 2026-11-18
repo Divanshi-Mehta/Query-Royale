@@ -1,4 +1,6 @@
+import json
 import os
+<<<<<<< HEAD
 import re
 import sqlite3
 from pathlib import Path
@@ -301,10 +303,116 @@ def _init_mysql_sample_tables(conn):
         c.close()
     except Exception:
         pass
+=======
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from dotenv import load_dotenv
+
+# Load backend/.env if present
+load_dotenv(Path(__file__).resolve().parent / ".env")
+>>>>>>> d2d547e (feat: add login page with two-factor authentication (2FA) and backend integration)
+
+DB_DIR = Path(__file__).resolve().parent.parent / "database"
+DB_DIR.mkdir(parents=True, exist_ok=True)
+SQLITE_DB_PATH = DB_DIR / "query_royale.db"
+
+
+class SQLiteCursorWrapper:
+    """Cursor wrapper for SQLite matching mysql.connector dictionary cursor behaviour."""
+
+    def __init__(self, cursor: sqlite3.Cursor, dictionary: bool = False):
+        self._cursor = cursor
+        self._dict = dictionary
+
+    def execute(self, query: str, values: Any = None):
+        # Convert MySQL %s parameter placeholders to SQLite ? placeholders
+        sql = query.replace("%s", "?")
+        if values is None:
+            return self._cursor.execute(sql)
+        if isinstance(values, (list, tuple)):
+            return self._cursor.execute(sql, tuple(values))
+        return self._cursor.execute(sql, (values,))
+
+    def executemany(self, query: str, seq_of_values: Any):
+        sql = query.replace("%s", "?")
+        return self._cursor.executemany(sql, seq_of_values)
+
+    def fetchone(self) -> Optional[Any]:
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        if self._dict:
+            return dict(row)
+        return tuple(row)
+
+    def fetchall(self) -> List[Any]:
+        rows = self._cursor.fetchall()
+        if self._dict:
+            return [dict(r) for r in rows]
+        return [tuple(r) for r in rows]
+
+    @property
+    def lastrowid(self) -> Optional[int]:
+        return self._cursor.lastrowid
+
+    @property
+    def rowcount(self) -> int:
+        return self._cursor.rowcount
+
+    def close(self):
+        try:
+            self._cursor.close()
+        except Exception:
+            pass
+
+
+class SQLiteConnWrapper:
+    """Connection wrapper for SQLite providing .cursor(dictionary=True) and transactions."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+        self._conn.row_factory = sqlite3.Row
+
+    def cursor(self, dictionary: bool = False):
+        return SQLiteCursorWrapper(self._conn.cursor(), dictionary=dictionary)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
+def _try_mysql_connection():
+    db_host = os.getenv("DB_HOST")
+    if not db_host:
+        return None
+
+    try:
+        import mysql.connector
+
+        conn = mysql.connector.connect(
+            host=db_host,
+            port=int(os.getenv("DB_PORT", 3306)),
+            user=os.getenv("DB_USER", "root"),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "query_royale"),
+            connect_timeout=2,
+        )
+        return conn
+    except Exception:
+        return None
 
 
 def get_db_connection():
     """
+<<<<<<< HEAD
     Returns a MySQL connection if configured and reachable;
     otherwise returns a fully MySQL-compatible SQLite connection wrapper.
     """
@@ -360,16 +468,320 @@ def get_db_type():
 
 
 def execute_query(query, values=None, fetch=False):
+=======
+    Returns an active database connection.
+    Attempts MySQL first if DB_HOST is set; otherwise connects to persistent SQLite DB.
+    """
+    mysql_conn = _try_mysql_connection()
+    if mysql_conn is not None:
+        return mysql_conn
+
+    # Fallback to persistent SQLite
+    raw_conn = sqlite3.connect(str(SQLITE_DB_PATH), check_same_thread=False)
+    return SQLiteConnWrapper(raw_conn)
+
+
+def execute_query(query: str, values: Any = None, fetch: bool = False):
+>>>>>>> d2d547e (feat: add login page with two-factor authentication (2FA) and backend integration)
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
 
     try:
         cursor.execute(query, values or ())
-
         if fetch:
             return cursor.fetchall()
-
         connection.commit()
     finally:
         cursor.close()
         connection.close()
+
+
+def init_db():
+    """Initializes tables for SQLite and creates default initial real admin if empty."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        # 1. Users table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                email VARCHAR(150) UNIQUE NOT NULL,
+                password_hash VARCHAR(256) NOT NULL,
+                password_salt VARCHAR(64) NOT NULL,
+                role VARCHAR(50) DEFAULT 'user',
+                is_2fa_enabled INTEGER DEFAULT 0,
+                totp_secret VARCHAR(64) NULL,
+                backup_codes TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP NULL
+            )
+            """
+        )
+
+        # 2. Queries table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS queries (
+                query_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_text TEXT NOT NULL,
+                scheduling_algorithm VARCHAR(30),
+                priority INTEGER DEFAULT 0,
+                status VARCHAR(20) DEFAULT 'SUBMITTED',
+                submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        # 3. Processes table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS processes (
+                process_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_id INTEGER NOT NULL,
+                process_state VARCHAR(20) DEFAULT 'NEW',
+                arrival_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                burst_time INTEGER NOT NULL,
+                priority INTEGER DEFAULT 0,
+                completion_time DATETIME NULL,
+                waiting_time INTEGER DEFAULT 0,
+                turnaround_time INTEGER DEFAULT 0,
+                response_time INTEGER DEFAULT 0
+            )
+            """
+        )
+
+        # 4. Transactions table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS transactions (
+                transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                process_id INTEGER NOT NULL,
+                transaction_state VARCHAR(20) DEFAULT 'ACTIVE',
+                start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                commit_time DATETIME NULL,
+                rollback_time DATETIME NULL
+            )
+            """
+        )
+
+        # 5. Locks table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS locks (
+                lock_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER NOT NULL,
+                resource_name VARCHAR(100) NOT NULL,
+                lock_type VARCHAR(10) NOT NULL,
+                lock_state VARCHAR(20) DEFAULT 'GRANTED',
+                requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                released_at DATETIME NULL
+            )
+            """
+        )
+
+        # 6. Deadlocks table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS deadlocks (
+                deadlock_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_1_id INTEGER NOT NULL,
+                transaction_2_id INTEGER NOT NULL,
+                detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                resolution_status VARCHAR(20) DEFAULT 'DETECTED',
+                resolved_transaction_id INTEGER NULL
+            )
+            """
+        )
+
+        # 7. Scheduling results table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scheduling_results (
+                result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                process_id INTEGER NOT NULL,
+                algorithm VARCHAR(30) NOT NULL,
+                waiting_time INTEGER DEFAULT 0,
+                turnaround_time INTEGER DEFAULT 0,
+                response_time INTEGER DEFAULT 0,
+                completion_time DATETIME NULL,
+                cpu_utilization DECIMAL(5,2) DEFAULT 0.00,
+                calculated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        # 8. System metrics table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS system_metrics (
+                metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cpu_utilization DECIMAL(5,2) DEFAULT 0.00,
+                active_processes INTEGER DEFAULT 0,
+                waiting_processes INTEGER DEFAULT 0,
+                active_transactions INTEGER DEFAULT 0,
+                waiting_transactions INTEGER DEFAULT 0,
+                active_locks INTEGER DEFAULT 0,
+                lock_waits INTEGER DEFAULT 0,
+                deadlock_count INTEGER DEFAULT 0,
+                recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        # 9. WAL logs table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wal_logs (
+                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER NOT NULL,
+                operation_type VARCHAR(20) NOT NULL,
+                table_name VARCHAR(100) NOT NULL,
+                record_identifier VARCHAR(100),
+                old_value TEXT,
+                new_value TEXT,
+                log_status VARCHAR(20) DEFAULT 'PENDING',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        conn.commit()
+        # No fake or hardcoded mock users seeded - users register their own real accounts
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# Helper database functions for Authentication
+def get_user_by_username_or_email(identifier: str) -> Optional[Dict[str, Any]]:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        query = """
+        SELECT id, username, email, password_hash, password_salt, role,
+               is_2fa_enabled, totp_secret, backup_codes, created_at, last_login
+        FROM users
+        WHERE username = %s OR email = %s
+        LIMIT 1
+        """
+        cursor.execute(query, (identifier.strip(), identifier.strip()))
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        query = """
+        SELECT id, username, email, password_hash, password_salt, role,
+               is_2fa_enabled, totp_secret, backup_codes, created_at, last_login
+        FROM users
+        WHERE id = %s
+        LIMIT 1
+        """
+        cursor.execute(query, (user_id,))
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def create_user_record(
+    username: str,
+    email: str,
+    password_hash: str,
+    password_salt: str,
+    role: str = "user",
+    is_2fa_enabled: int = 0,
+    totp_secret: Optional[str] = None,
+    backup_codes: Optional[List[str]] = None,
+) -> int:
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        codes_json = json.dumps(backup_codes) if backup_codes else None
+        query = """
+        INSERT INTO users (
+            username, email, password_hash, password_salt, role,
+            is_2fa_enabled, totp_secret, backup_codes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(
+            query,
+            (
+                username.strip(),
+                email.strip(),
+                password_hash,
+                password_salt,
+                role,
+                int(is_2fa_enabled),
+                totp_secret,
+                codes_json,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_user_2fa_record(
+    user_id: int,
+    is_2fa_enabled: bool,
+    totp_secret: Optional[str] = None,
+    backup_codes: Optional[List[str]] = None,
+) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        codes_json = json.dumps(backup_codes) if backup_codes else None
+        query = """
+        UPDATE users
+        SET is_2fa_enabled = %s,
+            totp_secret = %s,
+            backup_codes = %s
+        WHERE id = %s
+        """
+        cursor.execute(
+            query,
+            (int(is_2fa_enabled), totp_secret, codes_json, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_user_backup_codes(user_id: int, backup_codes: List[str]) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "UPDATE users SET backup_codes = %s WHERE id = %s"
+        cursor.execute(query, (json.dumps(backup_codes), user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_user_last_login(user_id: int) -> bool:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        now = datetime.now()
+        query = "UPDATE users SET last_login = %s WHERE id = %s"
+        cursor.execute(query, (now, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        cursor.close()
+        conn.close()

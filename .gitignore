@@ -27,6 +27,11 @@ wheels/
 # Environment
 .env
 
+# Database
+*.db
+*.sqlite3
+*.sqlite
+
 # Testing & Coverage
 .pytest_cache/
 .coverage
