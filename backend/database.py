@@ -1,9 +1,11 @@
 import json
 import os
-<<<<<<< HEAD
 import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 try:
     from dotenv import load_dotenv
     env_path = Path(__file__).resolve().parent / ".env"
@@ -12,65 +14,62 @@ try:
 except ImportError:
     pass
 
-SQLITE_DB_PATH = Path(__file__).resolve().parent / "query_royale.db"
+SQLITE_DB_PATH = Path(os.getenv("SQLITE_DB_PATH", str(Path(__file__).resolve().parent / "query_royale.db")))
 
 
 class SQLiteCursorWrapper:
-    def __init__(self, cursor, dictionary=False):
+    """Cursor wrapper for SQLite matching mysql.connector dictionary cursor behaviour."""
+
+    def __init__(self, cursor: sqlite3.Cursor, dictionary: bool = False):
         self._cursor = cursor
-        self._dictionary = dictionary
+        self._dict = dictionary
 
-    def execute(self, query, params=None):
+    def execute(self, query: str, values: Any = None):
         # Convert MySQL %s placeholder to SQLite ? placeholder
-        sqlite_query = re.sub(r"%s", "?", query)
-        # Convert MySQL NOW() or CURRENT_TIMESTAMP if needed
-        sqlite_query = re.sub(r"\bNOW\(\)", "CURRENT_TIMESTAMP", sqlite_query, flags=re.IGNORECASE)
+        sql = re.sub(r"%s", "?", query)
+        sql = re.sub(r"\bNOW\(\)", "CURRENT_TIMESTAMP", sql, flags=re.IGNORECASE)
 
-        if params is None:
-            return self._cursor.execute(sqlite_query)
-        elif isinstance(params, (list, tuple)):
-            # Convert datetime or objects to strings/primitives if needed
+        if values is None:
+            return self._cursor.execute(sql)
+        elif isinstance(values, (list, tuple)):
             converted_params = []
-            for p in params:
+            for p in values:
                 if hasattr(p, "isoformat"):
                     converted_params.append(p.strftime("%Y-%m-%d %H:%M:%S"))
                 else:
                     converted_params.append(p)
-            return self._cursor.execute(sqlite_query, converted_params)
-        elif isinstance(params, dict):
-            return self._cursor.execute(sqlite_query, params)
+            return self._cursor.execute(sql, tuple(converted_params))
+        elif isinstance(values, dict):
+            return self._cursor.execute(sql, values)
         else:
-            return self._cursor.execute(sqlite_query, (params,))
+            return self._cursor.execute(sql, (values,))
 
-    def executemany(self, query, seq_of_params):
-        sqlite_query = re.sub(r"%s", "?", query)
-        return self._cursor.executemany(sqlite_query, seq_of_params)
+    def executemany(self, query: str, seq_of_values: Any):
+        sql = re.sub(r"%s", "?", query)
+        sql = re.sub(r"\bNOW\(\)", "CURRENT_TIMESTAMP", sql, flags=re.IGNORECASE)
+        return self._cursor.executemany(sql, seq_of_values)
 
-    def fetchone(self):
+    def fetchone(self) -> Optional[Any]:
         row = self._cursor.fetchone()
         if row is None:
             return None
-        if self._dictionary:
+        if self._dict:
             return dict(row)
-        return row
+        return tuple(row)
 
-    def fetchall(self):
+    def fetchall(self) -> List[Any]:
         rows = self._cursor.fetchall()
-        if self._dictionary:
+        if self._dict:
             return [dict(r) for r in rows]
-        return rows
+        return [tuple(r) for r in rows]
 
     @property
-    def lastrowid(self):
+    def lastrowid(self) -> Optional[int]:
         return self._cursor.lastrowid
 
     @property
-    def rowcount(self):
+    def rowcount(self) -> int:
         return self._cursor.rowcount
-
-    @property
-    def description(self):
-        return self._cursor.description
 
     def close(self):
         try:
@@ -79,32 +78,124 @@ class SQLiteCursorWrapper:
             pass
 
 
-class SQLiteConnectionWrapper:
-    def __init__(self, connection):
-        self._connection = connection
+class SQLiteConnWrapper:
+    """Connection wrapper for SQLite providing .cursor(dictionary=True) and transactions."""
 
-    def cursor(self, dictionary=False):
-        self._connection.row_factory = sqlite3.Row if dictionary else None
-        raw_cursor = self._connection.cursor()
-        return SQLiteCursorWrapper(raw_cursor, dictionary=dictionary)
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+        self._conn.row_factory = sqlite3.Row
+
+    def cursor(self, dictionary: bool = False):
+        return SQLiteCursorWrapper(self._conn.cursor(), dictionary=dictionary)
 
     def commit(self):
-        return self._connection.commit()
+        self._conn.commit()
 
     def rollback(self):
-        return self._connection.rollback()
+        self._conn.rollback()
 
     def close(self):
+        self._conn.close()
+
+
+# Alias for backwards compatibility
+SQLiteConnectionWrapper = SQLiteConnWrapper
+
+
+def _try_mysql_connection():
+    db_host = os.getenv("DB_HOST")
+    if not db_host:
+        return None
+
+    try:
+        import mysql.connector
+
+        conn = mysql.connector.connect(
+            host=db_host,
+            port=int(os.getenv("DB_PORT", 3306)),
+            user=os.getenv("DB_USER", "root"),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "query_royale"),
+            connect_timeout=2,
+        )
+        return conn
+    except Exception:
+        return None
+
+
+def get_db_connection():
+    """
+    Returns an active database connection.
+    Attempts MySQL first if DB_HOST is configured and reachable;
+    otherwise connects to persistent SQLite DB.
+    """
+    mysql_conn = _try_mysql_connection()
+    if mysql_conn is not None:
+        _init_mysql_sample_tables(mysql_conn)
+        return mysql_conn
+
+    # Fallback to persistent SQLite
+    raw_conn = sqlite3.connect(str(SQLITE_DB_PATH), check_same_thread=False)
+    _init_sqlite_schema(raw_conn)
+    return SQLiteConnWrapper(raw_conn)
+
+
+def get_db_type() -> str:
+    """Returns 'mysql' if MySQL is actively connected, otherwise 'sqlite'."""
+    db_host = os.getenv("DB_HOST")
+    db_user = os.getenv("DB_USER")
+    db_name = os.getenv("DB_NAME")
+
+    if db_host and db_user and db_name:
         try:
-            self._connection.close()
+            import mysql.connector
+            conn = mysql.connector.connect(
+                host=db_host,
+                port=int(os.getenv("DB_PORT", 3306)),
+                user=db_user,
+                password=os.getenv("DB_PASSWORD", ""),
+                database=db_name,
+                connect_timeout=1,
+            )
+            conn.close()
+            return "mysql"
         except Exception:
-            pass
+            return "sqlite"
+    return "sqlite"
 
 
-def _init_sqlite_schema(conn):
+def execute_query(query: str, values: Any = None, fetch: bool = False):
+    connection = get_db_connection()
+    cursor = connection.cursor(dictionary=True)
+
+    try:
+        cursor.execute(query, values or ())
+        if fetch:
+            return cursor.fetchall()
+        connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
+
+
+def _init_sqlite_schema(conn: sqlite3.Connection):
     """Initialize schema tables and seed data in SQLite database."""
     c = conn.cursor()
     c.executescript("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        email VARCHAR(150) UNIQUE NOT NULL,
+        password_hash VARCHAR(256) NOT NULL,
+        password_salt VARCHAR(64) NOT NULL,
+        role VARCHAR(50) DEFAULT 'user',
+        is_2fa_enabled INTEGER DEFAULT 0,
+        totp_secret VARCHAR(64) NULL,
+        backup_codes TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP NULL
+    );
+
     CREATE TABLE IF NOT EXISTS queries (
         query_id INTEGER PRIMARY KEY AUTOINCREMENT,
         query_text TEXT NOT NULL,
@@ -217,7 +308,7 @@ def _init_sqlite_schema(conn):
     );
     """)
 
-    # Seed sample orders and products if empty
+    # Seed sample orders, products, accounts, and system_metrics if empty
     res = c.execute("SELECT COUNT(*) FROM orders").fetchone()
     if res and res[0] == 0:
         c.executescript("""
@@ -303,359 +394,17 @@ def _init_mysql_sample_tables(conn):
         c.close()
     except Exception:
         pass
-=======
-import sqlite3
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
-from dotenv import load_dotenv
-
-# Load backend/.env if present
-load_dotenv(Path(__file__).resolve().parent / ".env")
->>>>>>> d2d547e (feat: add login page with two-factor authentication (2FA) and backend integration)
-
-DB_DIR = Path(__file__).resolve().parent.parent / "database"
-DB_DIR.mkdir(parents=True, exist_ok=True)
-SQLITE_DB_PATH = DB_DIR / "query_royale.db"
-
-
-class SQLiteCursorWrapper:
-    """Cursor wrapper for SQLite matching mysql.connector dictionary cursor behaviour."""
-
-    def __init__(self, cursor: sqlite3.Cursor, dictionary: bool = False):
-        self._cursor = cursor
-        self._dict = dictionary
-
-    def execute(self, query: str, values: Any = None):
-        # Convert MySQL %s parameter placeholders to SQLite ? placeholders
-        sql = query.replace("%s", "?")
-        if values is None:
-            return self._cursor.execute(sql)
-        if isinstance(values, (list, tuple)):
-            return self._cursor.execute(sql, tuple(values))
-        return self._cursor.execute(sql, (values,))
-
-    def executemany(self, query: str, seq_of_values: Any):
-        sql = query.replace("%s", "?")
-        return self._cursor.executemany(sql, seq_of_values)
-
-    def fetchone(self) -> Optional[Any]:
-        row = self._cursor.fetchone()
-        if row is None:
-            return None
-        if self._dict:
-            return dict(row)
-        return tuple(row)
-
-    def fetchall(self) -> List[Any]:
-        rows = self._cursor.fetchall()
-        if self._dict:
-            return [dict(r) for r in rows]
-        return [tuple(r) for r in rows]
-
-    @property
-    def lastrowid(self) -> Optional[int]:
-        return self._cursor.lastrowid
-
-    @property
-    def rowcount(self) -> int:
-        return self._cursor.rowcount
-
-    def close(self):
-        try:
-            self._cursor.close()
-        except Exception:
-            pass
-
-
-class SQLiteConnWrapper:
-    """Connection wrapper for SQLite providing .cursor(dictionary=True) and transactions."""
-
-    def __init__(self, conn: sqlite3.Connection):
-        self._conn = conn
-        self._conn.row_factory = sqlite3.Row
-
-    def cursor(self, dictionary: bool = False):
-        return SQLiteCursorWrapper(self._conn.cursor(), dictionary=dictionary)
-
-    def commit(self):
-        self._conn.commit()
-
-    def rollback(self):
-        self._conn.rollback()
-
-    def close(self):
-        self._conn.close()
-
-
-def _try_mysql_connection():
-    db_host = os.getenv("DB_HOST")
-    if not db_host:
-        return None
-
-    try:
-        import mysql.connector
-
-        conn = mysql.connector.connect(
-            host=db_host,
-            port=int(os.getenv("DB_PORT", 3306)),
-            user=os.getenv("DB_USER", "root"),
-            password=os.getenv("DB_PASSWORD", ""),
-            database=os.getenv("DB_NAME", "query_royale"),
-            connect_timeout=2,
-        )
-        return conn
-    except Exception:
-        return None
-
-
-def get_db_connection():
-    """
-<<<<<<< HEAD
-    Returns a MySQL connection if configured and reachable;
-    otherwise returns a fully MySQL-compatible SQLite connection wrapper.
-    """
-    db_host = os.getenv("DB_HOST")
-    db_user = os.getenv("DB_USER")
-    db_name = os.getenv("DB_NAME")
-
-    if db_host and db_user and db_name:
-        try:
-            import mysql.connector
-            conn = mysql.connector.connect(
-                host=db_host,
-                port=int(os.getenv("DB_PORT", 3306)),
-                user=db_user,
-                password=os.getenv("DB_PASSWORD", ""),
-                database=db_name,
-                connection_timeout=2
-            )
-            _init_mysql_sample_tables(conn)
-            return conn
-        except Exception:
-            # Fall back to SQLite if MySQL connection fails
-            pass
-
-    # Seamless SQLite fallback
-    raw_sqlite_conn = sqlite3.connect(str(SQLITE_DB_PATH), check_same_thread=False)
-    _init_sqlite_schema(raw_sqlite_conn)
-    return SQLiteConnectionWrapper(raw_sqlite_conn)
-
-
-def get_db_type():
-    """Returns 'mysql' if MySQL is actively connected, otherwise 'sqlite'."""
-    db_host = os.getenv("DB_HOST")
-    db_user = os.getenv("DB_USER")
-    db_name = os.getenv("DB_NAME")
-
-    if db_host and db_user and db_name:
-        try:
-            import mysql.connector
-            conn = mysql.connector.connect(
-                host=db_host,
-                port=int(os.getenv("DB_PORT", 3306)),
-                user=db_user,
-                password=os.getenv("DB_PASSWORD", ""),
-                database=db_name,
-                connection_timeout=1
-            )
-            conn.close()
-            return "mysql"
-        except Exception:
-            return "sqlite"
-    return "sqlite"
-
-
-def execute_query(query, values=None, fetch=False):
-=======
-    Returns an active database connection.
-    Attempts MySQL first if DB_HOST is set; otherwise connects to persistent SQLite DB.
-    """
-    mysql_conn = _try_mysql_connection()
-    if mysql_conn is not None:
-        return mysql_conn
-
-    # Fallback to persistent SQLite
-    raw_conn = sqlite3.connect(str(SQLITE_DB_PATH), check_same_thread=False)
-    return SQLiteConnWrapper(raw_conn)
-
-
-def execute_query(query: str, values: Any = None, fetch: bool = False):
->>>>>>> d2d547e (feat: add login page with two-factor authentication (2FA) and backend integration)
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-
-    try:
-        cursor.execute(query, values or ())
-        if fetch:
-            return cursor.fetchall()
-        connection.commit()
-    finally:
-        cursor.close()
-        connection.close()
 
 
 def init_db():
-    """Initializes tables for SQLite and creates default initial real admin if empty."""
+    """Initializes tables for SQLite and MySQL."""
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    try:
-        # 1. Users table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username VARCHAR(100) UNIQUE NOT NULL,
-                email VARCHAR(150) UNIQUE NOT NULL,
-                password_hash VARCHAR(256) NOT NULL,
-                password_salt VARCHAR(64) NOT NULL,
-                role VARCHAR(50) DEFAULT 'user',
-                is_2fa_enabled INTEGER DEFAULT 0,
-                totp_secret VARCHAR(64) NULL,
-                backup_codes TEXT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP NULL
-            )
-            """
-        )
-
-        # 2. Queries table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS queries (
-                query_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                query_text TEXT NOT NULL,
-                scheduling_algorithm VARCHAR(30),
-                priority INTEGER DEFAULT 0,
-                status VARCHAR(20) DEFAULT 'SUBMITTED',
-                submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-
-        # 3. Processes table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS processes (
-                process_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                query_id INTEGER NOT NULL,
-                process_state VARCHAR(20) DEFAULT 'NEW',
-                arrival_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                burst_time INTEGER NOT NULL,
-                priority INTEGER DEFAULT 0,
-                completion_time DATETIME NULL,
-                waiting_time INTEGER DEFAULT 0,
-                turnaround_time INTEGER DEFAULT 0,
-                response_time INTEGER DEFAULT 0
-            )
-            """
-        )
-
-        # 4. Transactions table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS transactions (
-                transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                process_id INTEGER NOT NULL,
-                transaction_state VARCHAR(20) DEFAULT 'ACTIVE',
-                start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                commit_time DATETIME NULL,
-                rollback_time DATETIME NULL
-            )
-            """
-        )
-
-        # 5. Locks table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS locks (
-                lock_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                transaction_id INTEGER NOT NULL,
-                resource_name VARCHAR(100) NOT NULL,
-                lock_type VARCHAR(10) NOT NULL,
-                lock_state VARCHAR(20) DEFAULT 'GRANTED',
-                requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                released_at DATETIME NULL
-            )
-            """
-        )
-
-        # 6. Deadlocks table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS deadlocks (
-                deadlock_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                transaction_1_id INTEGER NOT NULL,
-                transaction_2_id INTEGER NOT NULL,
-                detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                resolution_status VARCHAR(20) DEFAULT 'DETECTED',
-                resolved_transaction_id INTEGER NULL
-            )
-            """
-        )
-
-        # 7. Scheduling results table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scheduling_results (
-                result_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                process_id INTEGER NOT NULL,
-                algorithm VARCHAR(30) NOT NULL,
-                waiting_time INTEGER DEFAULT 0,
-                turnaround_time INTEGER DEFAULT 0,
-                response_time INTEGER DEFAULT 0,
-                completion_time DATETIME NULL,
-                cpu_utilization DECIMAL(5,2) DEFAULT 0.00,
-                calculated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-
-        # 8. System metrics table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS system_metrics (
-                metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cpu_utilization DECIMAL(5,2) DEFAULT 0.00,
-                active_processes INTEGER DEFAULT 0,
-                waiting_processes INTEGER DEFAULT 0,
-                active_transactions INTEGER DEFAULT 0,
-                waiting_transactions INTEGER DEFAULT 0,
-                active_locks INTEGER DEFAULT 0,
-                lock_waits INTEGER DEFAULT 0,
-                deadlock_count INTEGER DEFAULT 0,
-                recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-
-        # 9. WAL logs table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS wal_logs (
-                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                transaction_id INTEGER NOT NULL,
-                operation_type VARCHAR(20) NOT NULL,
-                table_name VARCHAR(100) NOT NULL,
-                record_identifier VARCHAR(100),
-                old_value TEXT,
-                new_value TEXT,
-                log_status VARCHAR(20) DEFAULT 'PENDING',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-
-        conn.commit()
-        # No fake or hardcoded mock users seeded - users register their own real accounts
-    finally:
-        cursor.close()
-        conn.close()
+    conn.close()
 
 
+# ----------------------------------------------------------------------
 # Helper database functions for Authentication
+# ----------------------------------------------------------------------
 def get_user_by_username_or_email(identifier: str) -> Optional[Dict[str, Any]]:
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)

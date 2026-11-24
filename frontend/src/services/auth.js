@@ -1,6 +1,6 @@
 /**
- * Authentication & 2FA Service
- * Connects directly to FastAPI backend without any fake mock logic.
+ * Authentication Service
+ * Connects directly to FastAPI backend without mock logic.
  */
 
 const API_BASE = '/api/auth'
@@ -55,7 +55,27 @@ async function request(endpoint, options = {}) {
   const data = await response.json().catch(() => ({}))
 
   if (!response.ok) {
-    const errorMsg = data.detail || data.message || `Request failed with status ${response.status}`
+    let errorMsg = ''
+    if (Array.isArray(data.detail)) {
+      errorMsg = data.detail
+        .map(err => {
+          let msg = err.msg || err.message || (typeof err === 'string' ? err : '')
+          if (msg.startsWith('Value error, ')) {
+            msg = msg.replace('Value error, ', '')
+          }
+          return msg
+        })
+        .filter(Boolean)
+        .join('. ')
+    } else if (typeof data.detail === 'string') {
+      errorMsg = data.detail
+    } else if (data.detail && typeof data.detail === 'object') {
+      errorMsg = data.detail.msg || data.detail.message || JSON.stringify(data.detail)
+    } else if (data.message) {
+      errorMsg = data.message
+    } else {
+      errorMsg = `Request failed with status ${response.status}`
+    }
     throw new Error(errorMsg)
   }
 
@@ -63,8 +83,8 @@ async function request(endpoint, options = {}) {
 }
 
 /**
- * Step 1: Submit username/email and password.
- * Returns { requires_2fa: true, pre_auth_token, ... } OR { requires_2fa: false, access_token, user, ... }
+ * Submit username/email and password to authenticate.
+ * Returns { access_token, user, status }
  */
 export async function loginUser(username, password) {
   return request('/login', {
@@ -74,30 +94,15 @@ export async function loginUser(username, password) {
 }
 
 /**
- * Step 2: Submit 6-digit TOTP code or backup code for 2FA verification.
+ * Real user registration.
  */
-export async function verifyLogin2FA(preAuthToken, { totpCode, backupCode }) {
-  return request('/login-2fa', {
-    method: 'POST',
-    body: JSON.stringify({
-      pre_auth_token: preAuthToken,
-      totp_code: totpCode || null,
-      backup_code: backupCode || null,
-    }),
-  })
-}
-
-/**
- * User Registration with optional immediate 2FA setup.
- */
-export async function registerUser({ username, email, password, enable2faNow = false }) {
+export async function registerUser({ username, email, password }) {
   return request('/register', {
     method: 'POST',
     body: JSON.stringify({
       username,
       email,
       password,
-      enable_2fa_now: Boolean(enable2faNow),
     }),
   })
 }
@@ -108,47 +113,5 @@ export async function registerUser({ username, email, password, enable2faNow = f
 export async function getCurrentUser() {
   return request('/me', {
     method: 'GET',
-  })
-}
-
-/**
- * Initiate 2FA setup (generates TOTP secret, QR code SVG, backup codes).
- */
-export async function initiate2FASetup() {
-  return request('/2fa/setup', {
-    method: 'POST',
-  })
-}
-
-/**
- * Confirm 2FA setup with a 6-digit test code.
- */
-export async function confirm2FASetup(secret, totpCode, backupCodes) {
-  return request('/2fa/confirm', {
-    method: 'POST',
-    body: JSON.stringify({
-      secret,
-      totp_code: totpCode,
-      backup_codes: backupCodes,
-    }),
-  })
-}
-
-/**
- * Disable 2FA with user's current password.
- */
-export async function disable2FA(password) {
-  return request('/2fa/disable', {
-    method: 'POST',
-    body: JSON.stringify({ password }),
-  })
-}
-
-/**
- * Generate 5 new backup recovery codes.
- */
-export async function regenerateBackupCodes() {
-  return request('/2fa/regenerate-backups', {
-    method: 'POST',
   })
 }

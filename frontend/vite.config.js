@@ -6,37 +6,29 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-<<<<<<< HEAD
-
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8001',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-      '/schedule': {
-        target: 'http://127.0.0.1:8001',
-        changeOrigin: true,
-      },
-      '/dbms': {
-        target: 'http://127.0.0.1:8001',
-        changeOrigin: true,
-      },
-      '/metrics': {
-        target: 'http://127.0.0.1:8001',
-        changeOrigin: true,
-      },
-      '/ai': {
-        target: 'http://127.0.0.1:8001',
-        changeOrigin: true,
-      },
-      '/health': {
-        target: 'http://127.0.0.1:8001',
-=======
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
->>>>>>> d2d547e (feat: add login page with two-factor authentication (2FA) and backend integration)
+        changeOrigin: true,
+      },
+      '/schedule': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/dbms': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/metrics': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/ai': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

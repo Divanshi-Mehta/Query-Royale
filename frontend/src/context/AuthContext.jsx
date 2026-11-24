@@ -6,7 +6,6 @@ import {
   clearSession,
   getCurrentUser,
   loginUser,
-  verifyLogin2FA,
   registerUser,
 } from '../services/auth'
 
@@ -45,52 +44,18 @@ export function AuthProvider({ children }) {
 
   async function login(username, password) {
     const res = await loginUser(username, password)
-    if (res.requires_2fa) {
-      // 2FA required: pass payload to caller to transition to 2FA step
-      return {
-        requires2FA: true,
-        preAuthToken: res.pre_auth_token,
-        username: res.username,
-        email: res.email,
-        userId: res.user_id,
-        message: res.message,
-      }
-    }
-
-    // Direct login successful
-    setSession(res.access_token, res.user)
-    setToken(res.access_token)
-    setUser(res.user)
-    return { requires2FA: false, success: true, user: res.user }
-  }
-
-  async function complete2FALogin(preAuthToken, { totpCode, backupCode }) {
-    const res = await verifyLogin2FA(preAuthToken, { totpCode, backupCode })
     setSession(res.access_token, res.user)
     setToken(res.access_token)
     setUser(res.user)
     return { success: true, user: res.user }
   }
 
-  async function register({ username, email, password, enable2faNow }) {
-    const res = await registerUser({ username, email, password, enable2faNow })
-    if (res.status === '2fa_setup_required') {
-      return {
-        requires2FASetup: true,
-        preAuthToken: res.pre_auth_token,
-        username: res.username,
-        totpSecret: res.totp_secret,
-        otpauthUrl: res.otpauth_url,
-        qrSvg: res.qr_svg,
-        backupCodes: res.backup_codes,
-      }
-    }
-
-    // Direct login after registration
+  async function register({ username, email, password }) {
+    const res = await registerUser({ username, email, password })
     setSession(res.access_token, res.user)
     setToken(res.access_token)
     setUser(res.user)
-    return { requires2FASetup: false, success: true, user: res.user }
+    return { success: true, user: res.user }
   }
 
   async function refreshUser() {
@@ -116,7 +81,6 @@ export function AuthProvider({ children }) {
     isAuthenticated: Boolean(user && token),
     isLoading,
     login,
-    complete2FALogin,
     register,
     refreshUser,
     logout,

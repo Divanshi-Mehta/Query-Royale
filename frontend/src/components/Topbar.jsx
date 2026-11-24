@@ -1,11 +1,6 @@
-<<<<<<< HEAD
 import { useState, useEffect } from 'react'
-import { Bell, Clock, CheckCircle2, AlertTriangle, ShieldCheck, X } from 'lucide-react'
-import { checkBackendHealth } from '../api/client'
-=======
-import { useState } from 'react'
 import { Bell, Clock, CheckCircle2, AlertTriangle, ShieldCheck, X, LogOut, ShieldAlert } from 'lucide-react'
->>>>>>> d2d547e (feat: add login page with two-factor authentication (2FA) and backend integration)
+import { checkBackendHealth } from '../api/client'
 
 const PAGE_META = {
   dashboard: {

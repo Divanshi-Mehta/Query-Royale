@@ -14,8 +14,6 @@ import {
   ChevronRight,
   ChevronDown,
   LogOut,
-  ShieldCheck,
-  ShieldAlert,
 } from 'lucide-react'
 
 export default function Sidebar({
@@ -48,7 +46,6 @@ export default function Sidebar({
 
   const username = user?.username || 'Admin'
   const email = user?.email || 'admin@queryroyale.com'
-  const is2FA = Boolean(user?.is_2fa_enabled)
   const initials = username.slice(0, 2).toUpperCase()
 
   return (
@@ -137,42 +134,8 @@ export default function Sidebar({
           {!isCollapsed && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#f8fafc', lineHeight: 1.2 }}>
-                    {username}
-                  </div>
-                  {is2FA ? (
-                    <span
-                      title="2FA Protected"
-                      style={{
-                        fontSize: 9,
-                        padding: '1px 5px',
-                        borderRadius: 4,
-                        background: 'rgba(34, 211, 238, 0.15)',
-                        color: '#22d3ee',
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 3,
-                      }}
-                    >
-                      <ShieldCheck size={10} /> 2FA
-                    </span>
-                  ) : (
-                    <span
-                      title="2FA Disabled - Enable in Settings"
-                      style={{
-                        fontSize: 9,
-                        padding: '1px 5px',
-                        borderRadius: 4,
-                        background: 'rgba(251, 191, 36, 0.15)',
-                        color: '#fbbf24',
-                        fontWeight: 700,
-                      }}
-                    >
-                      2FA Off
-                    </span>
-                  )}
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#f8fafc', lineHeight: 1.2 }}>
+                  {username}
                 </div>
                 <div
                   style={{
@@ -216,15 +179,9 @@ export default function Sidebar({
                 padding: '6px 8px',
                 borderBottom: '1px solid rgba(255,255,255,0.06)',
                 marginBottom: 4,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
               }}
             >
-              <span>Security Status:</span>
-              <span style={{ color: is2FA ? '#34d399' : '#fbbf24', fontWeight: 600 }}>
-                {is2FA ? '2FA Active' : '2FA Inactive'}
-              </span>
+              Signed in as <strong style={{ color: '#f1f5f9' }}>{username}</strong>
             </div>
 
             <button
@@ -248,7 +205,7 @@ export default function Sidebar({
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}
             >
-              <Settings size={14} /> Security &amp; 2FA Settings
+              <Settings size={14} /> Platform Settings
             </button>
 
             <button
